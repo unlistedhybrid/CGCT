@@ -3,10 +3,9 @@ name: Build executables (PyInstaller)
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:
-  push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
