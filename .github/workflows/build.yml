@@ -3,8 +3,7 @@ name: Build executables (PyInstaller)
 on:
   push:
     branches: [ main, master ]
-    tags:
-      - "v*"
+    tags: [ "v*" ]
   workflow_dispatch:
 
 permissions:
@@ -20,20 +19,22 @@ jobs:
           - name: windows-x64
             os: windows-latest
             python: "3.11"
+            out: CGCT.exe
 
           - name: linux-x64
             os: ubuntu-24.04
             python: "3.11"
+            out: CGCT
 
-          # macOS Intel x64 (macOS 15 on Intel hardware)
           - name: macos-x64
             os: macos-15-intel
             python: "3.11"
+            out: CGCT
 
-          # macOS Apple Silicon arm64
           - name: macos-arm64
             os: macos-14
             python: "3.11"
+            out: CGCT
 
     runs-on: ${{ matrix.target.os }}
 
@@ -51,7 +52,6 @@ jobs:
           python-version: ${{ matrix.target.python }}
           cache: "pip"
 
-      # Linux only: Tkinter system deps for TkAgg
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -64,27 +64,18 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build with PyInstaller (onedir)
+      - name: Build with PyInstaller (onefile)
         run: |
-          pyinstaller --noconfirm --windowed --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
+          pyinstaller --noconfirm --windowed --onefile --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
 
-      - name: Package artifact (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $dir = "dist\${{ env.APP_NAME }}"
-          Compress-Archive -Path $dir -DestinationPath "${{ env.APP_NAME }}-${{ matrix.target.name }}.zip" -Force
-
-      - name: Package artifact (macOS/Linux)
+      # Make executable on Unix platforms
+      - name: chmod +x (macOS/Linux)
         if: runner.os != 'Windows'
         run: |
-          cd dist
-          tar -czf "../${{ env.APP_NAME }}-${{ matrix.target.name }}.tar.gz" "${{ env.APP_NAME }}"
+          chmod +x "dist/${{ matrix.target.out }}"
 
-      - name: Upload artifact
+      - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-${{ matrix.target.name }}
-          path: |
-            *.zip
-            *.tar.gz
+          path: dist/${{ matrix.target.out }}
