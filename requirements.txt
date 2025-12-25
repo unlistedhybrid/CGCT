@@ -1,0 +1,12 @@
+# Core scientific stack
+numpy>=1.24,<3.0
+pandas>=2.0,<3.0
+matplotlib>=3.8,<4.0
+
+# Bioinformatics
+biopython>=1.83,<2.0
+gffutils>=0.12,<1.0
+dna-features-viewer>=3.1,<4.0
+
+# File formats
+openpyxl>=3.1,<4.0
