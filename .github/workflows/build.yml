@@ -1,0 +1,103 @@
+name: Build executables (PyInstaller)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          # Windows x64
+          - name: windows-x64
+            os: windows-latest
+            python: "3.11"
+            exe_ext: ".exe"
+
+          # macOS Intel x64 (older runner = Intel)
+          - name: macos-x64
+            os: macos-13
+            python: "3.11"
+            exe_ext: ""
+
+          # macOS Apple Silicon arm64
+          - name: macos-arm64
+            os: macos-14
+            python: "3.11"
+            exe_ext: ""
+
+          # Linux x64
+          - name: linux-x64
+            os: ubuntu-24.04
+            python: "3.11"
+            exe_ext: ""
+
+    runs-on: ${{ matrix.target.os }}
+
+    env:
+      APP_NAME: YourApp
+      ENTRYPOINT: CGCT.py
+      # If you later need to clamp threads, uncomment these:
+      # OMP_NUM_THREADS: "1"
+      # OPENBLAS_NUM_THREADS: "1"
+      # MKL_NUM_THREADS: "1"
+      # NUMEXPR_NUM_THREADS: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.target.python }}
+          cache: "pip"
+
+      # Linux only: make sure Tk libs exist (for Tkinter + Matplotlib TkAgg)
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk tk-dev
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          # Your pinned deps should live in requirements.txt (recommended)
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller (onedir)
+        run: |
+          pyinstaller --noconfirm --windowed --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = "dist\${{ env.APP_NAME }}"
+          Compress-Archive -Path $dir -DestinationPath "${{ env.APP_NAME }}-${{ matrix.target.name }}.zip" -Force
+
+      - name: Package artifact (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          cd dist
+          tar -czf "../${{ env.APP_NAME }}-${{ matrix.target.name }}.tar.gz" "${{ env.APP_NAME }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ matrix.target.name }}
+          path: |
+            *.zip
+            *.tar.gz
