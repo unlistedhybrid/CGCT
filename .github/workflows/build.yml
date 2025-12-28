@@ -1,4 +1,4 @@
-name: Build executables (PyInstaller)
+name: Build CGCT bundle (with progressiveMauve)
 
 on:
   push:
@@ -19,28 +19,34 @@ jobs:
           - name: windows-x64
             os: windows-latest
             python: "3.11"
-            out: CGCT.exe
+            mauve_asset: progressiveMauve-v2.5.0-windows-x64.zip
+            mauve_bin: progressiveMauve.exe
 
           - name: linux-x64
             os: ubuntu-24.04
             python: "3.11"
-            out: CGCT
+            mauve_asset: progressiveMauve-v2.5.0-linux-x86_64.tar.gz
+            mauve_bin: progressiveMauve
 
           - name: macos-x64
             os: macos-15-intel
             python: "3.11"
-            out: CGCT
+            mauve_asset: progressiveMauve-v2.5.0-macos-intel.tar.gz
+            mauve_bin: progressiveMauve
 
           - name: macos-arm64
             os: macos-14
             python: "3.11"
-            out: CGCT
+            mauve_asset: progressiveMauve-v2.5.0-macos-arm64.tar.gz
+            mauve_bin: progressiveMauve
 
     runs-on: ${{ matrix.target.os }}
 
     env:
       APP_NAME: CGCT
       ENTRYPOINT: CGCT.py
+      MAUVE_REPO: unlistedhybrid/progressiveMauve-modernization
+      MAUVE_TAG: v2.5.0
 
     steps:
       - name: Checkout
@@ -52,6 +58,7 @@ jobs:
           python-version: ${{ matrix.target.python }}
           cache: "pip"
 
+      # Linux only: Tkinter system deps for TkAgg
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -64,18 +71,63 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build with PyInstaller (onefile)
+      # Build PyInstaller onedir => dist/CGCT/{CGCT,_internal/...}
+      - name: Build CGCT (PyInstaller onedir)
         run: |
-          pyinstaller --noconfirm --windowed --onefile --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
+          pyinstaller --noconfirm --windowed --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
 
-      # Make executable on Unix platforms
-      - name: chmod +x (macOS/Linux)
+      # Download + extract progressiveMauve and place just the binary into dist/CGCT/tools/
+      - name: Fetch progressiveMauve (macOS/Linux)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
-          chmod +x "dist/${{ matrix.target.out }}"
+          set -euo pipefail
+          url="https://github.com/${MAUVE_REPO}/releases/download/${MAUVE_TAG}/${{ matrix.target.mauve_asset }}"
+          echo "Downloading: $url"
+          curl -L --fail -o mauve.tar.gz "$url"
 
-      - name: Upload executable
+          mkdir -p mauve_extract
+          tar -xzf mauve.tar.gz -C mauve_extract
+
+          # Find the single binary inside the extracted tree
+          mauve_path="$(find mauve_extract -type f -name "${{ matrix.target.mauve_bin }}" -print -quit)"
+          if [ -z "$mauve_path" ]; then
+            echo "ERROR: Could not find ${{ matrix.target.mauve_bin }} in extracted archive"
+            find mauve_extract -maxdepth 3 -type f -print
+            exit 1
+          fi
+
+          mkdir -p "dist/${APP_NAME}/tools"
+          cp "$mauve_path" "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
+          chmod +x "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
+
+          # Ensure main app binary is executable too (usually already, but harmless)
+          chmod +x "dist/${APP_NAME}/${APP_NAME}"
+
+      - name: Fetch progressiveMauve (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/${env:MAUVE_REPO}/releases/download/${env:MAUVE_TAG}/${{ matrix.target.mauve_asset }}"
+          Write-Host "Downloading: $url"
+          Invoke-WebRequest -Uri $url -OutFile "mauve.zip"
+
+          New-Item -ItemType Directory -Force -Path "mauve_extract" | Out-Null
+          Expand-Archive -Path "mauve.zip" -DestinationPath "mauve_extract" -Force
+
+          $mauve = Get-ChildItem -Path "mauve_extract" -Recurse -File -Filter "${{ matrix.target.mauve_bin }}" | Select-Object -First 1
+          if (-not $mauve) {
+            Write-Host "ERROR: Could not find ${{ matrix.target.mauve_bin }} in extracted archive"
+            Get-ChildItem -Path "mauve_extract" -Recurse -File | Select-Object FullName
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\tools" | Out-Null
+          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\tools\${{ matrix.target.mauve_bin }}"
+
+      # Upload the folder directly (no extra zip/tar we create), so users extract once.
+      - name: Upload bundle folder
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-${{ matrix.target.name }}
-          path: dist/${{ matrix.target.out }}
+          path: dist/${{ env.APP_NAME }}
