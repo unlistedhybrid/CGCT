@@ -148,7 +148,7 @@ def _validate_intergenic_no_gff_overlap(intergenic_data, gff_features, log_queue
         print("  - GFF features: 1-indexed inclusive (GFF3 format, no conversion needed)")
     else:
         print("  - GFF features: 1-indexed inclusive (old GFF format, converted from 0-indexed)")
-    print("  - Checking {len(intergenic_data)} intergenic vs {len(gff_intervals)} features")
+    print(f"  - Checking {len(intergenic_data)} intergenic vs {len(gff_intervals)} features")
     print("  - Boundary touches (1bp) are flagged as WARNING, not CRITICAL\n")
 
     overlap_count, touching_count = 0, 0
@@ -544,12 +544,12 @@ def _run_sibeliaz_docker(query_fasta, ref_fasta, output_dir, extra_args=None, ti
     print(f"  output_dir: {output_dir}")
     print(f"  extra_args: {extra_args}")
     print(f"  timeout: {timeout}")
-    
+
     # 1. PATH Setup (Preserved from original, but DOCKER_CONTEXT is removed)
     print("\n[DEBUG SIBELIAZ] Setting up PATH environment...")
     original_path = os.environ.get("PATH", "")
     print(f"  Original PATH: {original_path[:150]}...")
-    
+
     os.environ["PATH"] = (
             "/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/MacOS:"
             + os.environ.get("PATH", "")
@@ -693,102 +693,37 @@ def _run_sibeliaz_docker(query_fasta, ref_fasta, output_dir, extra_args=None, ti
 
 def _run_progressive_mauve(query_fasta: Path, ref_fasta: Path, output_xmfa_path: Path, mauve_options=None):
     """
-    Runs progressiveMauve using a local binary located in a subdirectory
-    matching the current OS and CPU architecture.
+    Runs progressiveMauve using a local binary located in a Tools folder.
     """
     if mauve_options is None: mauve_options = {}
     output_xmfa_path.parent.mkdir(exist_ok=True)
 
-    # 1. Detect System and Architecture
+    # 1. Detect System and Construct Path
     system = platform.system().lower()
-    machine = platform.machine().lower()
     script_dir = Path(__file__).parent.absolute()
 
     exe_name = "progressiveMauve"
-    target_folder = None
-
-    # Fix for when Python runs under Rosetta on Apple Silicon
-    # Check actual system architecture using multiple methods
-    if system == "darwin":
-        print(f"[DEBUG MAUVE] Python reports machine as: {machine}")
-        try:
-            # Try using arch -arm64 to force native architecture detection
-            # This will succeed on ARM Macs but fail on Intel Macs
-            result = subprocess.run(['arch', '-arm64', 'uname', '-m'], 
-                                   capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                actual_arch = result.stdout.strip().lower()
-                print(f"[DEBUG MAUVE] Actual system architecture (arch -arm64 uname -m): {actual_arch}")
-                if actual_arch in ["arm64", "aarch64"]:
-                    print(f"[DEBUG MAUVE] System is Apple Silicon - will use macarm64 folder (with mac64 fallback)")
-                    machine = actual_arch
-                else:
-                    print(f"[DEBUG MAUVE] Unexpected arch result: {actual_arch}")
-            else:
-                # arch -arm64 failed - this is an Intel Mac
-                print(f"[DEBUG MAUVE] arch -arm64 failed (rc={result.returncode}) - system is Intel Mac (x86_64)")
-                print(f"[DEBUG MAUVE] Will use mac64 folder")
-        except Exception as e:
-            print(f"[DEBUG MAUVE] Could not detect actual architecture: {e}")
-            print(f"[DEBUG MAUVE] Defaulting to Python's reported architecture: {machine}")
-
-    # "amd64" covers x86_64 (standard Intel/AMD)
-    is_amd64 = machine in ["amd64", "x86_64", "x64"]
-    # "arm64" covers aarch64 (Apple Silicon, Snapdragon, Raspberry Pi)
-    is_arm64 = machine in ["arm64", "aarch64"]
-
     if system == "windows":
         exe_name = "progressiveMauve.exe"
-        if is_arm64:
-            # Check for native ARM64 first, fallback to emulated x64 if missing
-            if (script_dir / "winarm64" / exe_name).exists(): target_folder = "winarm64"
-            else:
-                print("[INFO] Windows ARM64 detected but 'winarm64' binary missing. Attempting x64 emulation.")
-                target_folder = "win64"
-        elif is_amd64: target_folder = "win64"
-        else: target_folder = "win32" # 32-bit fallback or other obscure arch
 
-    elif system == "linux":
-        if is_arm64: target_folder = "linuxarm64"
-        elif is_amd64: target_folder = "linux64"
-        else: target_folder = "linux32" # Potentially 32-bit linux
+    # All operating systems look for the executable in the Tools folder
+    tools_dir = script_dir / "Tools"
+    mauve_exe_path = tools_dir / exe_name
 
-    elif system == "darwin":  # macOS
-        print("[DEBUG MAUVE] Mac detected")
-        if is_arm64:
-            print("[DEBUG MAUVE] Mac ARM64 detected")
-            # Check for native Apple Silicon binary
-            if (script_dir / "macarm64" / exe_name).exists():
-                target_folder = "macarm64"
-            else:
-                # Fallback: Apple Silicon can run Intel binaries via Rosetta 2
-                print("[DEBUG MAUVE] Apple Silicon detected but 'macarm64' binary missing. Using Rosetta 2 fallback.")
-                target_folder = "mac64"
-        elif is_amd64: target_folder = "mac64"
-    else:
-        raise OSError(f"Unsupported operating system: {system}")
-
-    # 2. Construct and Validate Path
-    if target_folder:
-        mauve_exe_path = script_dir / target_folder / exe_name
-    else:
-        # Should rarely happen unless arch is totally unrecognized
-        raise OSError(f"Could not determine target folder for {system} {machine}")
-
-    print(f"\n[DEBUG MAUVE] Detected System: {system} | Arch: {machine}")
-    print(f"[DEBUG MAUVE] Target folder: {target_folder}")
+    print(f"\n[DEBUG MAUVE] Detected System: {system}")
+    print(f"[DEBUG MAUVE] Tools folder: {tools_dir}")
     print(f"[DEBUG MAUVE] Selected Mauve binary path: {mauve_exe_path}")
     print(f"[DEBUG MAUVE] Binary exists: {mauve_exe_path.exists()}")
-    print(f"[DEBUG MAUVE] Parent folder exists: {mauve_exe_path.parent.exists()}")
+    print(f"[DEBUG MAUVE] Tools folder exists: {tools_dir.exists()}")
 
     if not mauve_exe_path.exists():
         raise FileNotFoundError(
             f"progressiveMauve executable not found.\n"
             f"Looked for: {mauve_exe_path}\n"
-            f"Your system appears to be {system} ({machine}). Please ensure the folder '{target_folder}' exists containing '{exe_name}'."
+            f"Please ensure the 'Tools' folder exists in the same directory as this program, containing '{exe_name}'."
         )
 
-    # 3. Ensure Execution Permissions (Linux/Mac)
+    # 2. Ensure Execution Permissions (Linux/Mac)
     if system != "windows":
         print(f"\n[DEBUG MAUVE] Checking execution permissions...")
         try:
@@ -849,10 +784,10 @@ def _run_progressive_mauve(query_fasta: Path, ref_fasta: Path, output_xmfa_path:
         print(f"[DEBUG MAUVE] Starting subprocess.run...")
         print(f"[DEBUG MAUVE] Working directory: {Path.cwd()}")
         print(f"[DEBUG MAUVE] Using shell=False")
-        
+
         # On Windows, try to ensure paths are properly quoted
         proc = subprocess.run(base_cmd_parts, check=True, capture_output=True, text=True, timeout=1000)
-        
+
         print(f"[DEBUG MAUVE] subprocess.run completed with return code: {proc.returncode}")
         if proc.stdout:
             print(f"[DEBUG MAUVE] STDOUT ({len(proc.stdout)} chars total):\n{proc.stdout[:500]}")
@@ -2759,8 +2694,9 @@ def _generate_coding_fragments(lcb_data, coding_intervals_0based, query_seq, ref
             if 1 <= r_start_adj <= len(ref_seq) and 1 <= r_end_adj <= len(ref_seq):
                 r_orig_seq = ref_seq[r_start_adj - 1: r_end_adj]
 
-            # Find gene name using the same fallback logic as plot labels
+            # Find gene name and ID using the same fallback logic as plot labels
             gene_name = None
+            gene_id = None
             for fstart, fend, feature in feature_list:
                 # Check if coding fragment overlaps with this feature
                 if fstart <= q_start_adj <= fend or fstart <= q_end_adj <= fend or (
@@ -2768,12 +2704,17 @@ def _generate_coding_fragments(lcb_data, coding_intervals_0based, query_seq, ref
                     label = _label_for_feature(feature, allow_code_fallback)
                     if label:
                         gene_name = label
+                        # Extract gene ID from feature attributes
+                        attrs = getattr(feature, "attributes", {}) or {}
+                        gene_id = _get_attr_value(attrs, "ID")
                         break
 
             if not gene_name: gene_name = "unknown"
+            if not gene_id: gene_id = "unknown"
 
             coding_lcb_data.append({
                 "gene_name": gene_name,
+                "gene_id": gene_id,
                 "query_start": q_start_adj,
                 "query_end": q_end_adj,
                 "query_strand": q_strand,
@@ -3527,6 +3468,36 @@ def _sample_identity_profile(g_query_identity, full_seqlen, window_size, step_si
     # Note: cumsum_vec is shifted by 1 index, so cumsum_vec[end] corresponds to sum up to index end-1
     window_sums = cumsum_vec[ends] - cumsum_vec[starts]
     scores = window_sums / window_size
+
+    # Fill gaps at start and end by extrapolating the nearest score
+    if len(scores) > 0:
+        # 1. Fill gap at start
+        first_mid = midpoints[0]
+        if first_mid > 0:
+            # Generate points: first_mid-step, first_mid-2*step... down to 0
+            pre_m = np.arange(first_mid - step_size, -1, -step_size)[::-1]
+
+            # Ensure 0 is included (fixes large gaps in Color-Only mode)
+            if len(pre_m) == 0 or pre_m[0] > 0:
+                pre_m = np.insert(pre_m, 0, 0)
+
+            pre_s = np.full(len(pre_m), scores[0])
+            midpoints = np.concatenate((pre_m, midpoints))
+            scores = np.concatenate((pre_s, scores))
+
+        # 2. Fill gap at end
+        last_mid = midpoints[-1]
+        if last_mid < full_seqlen:
+            # Generate points: last_mid+step ... up to full_seqlen
+            post_m = np.arange(last_mid + step_size, full_seqlen + 1, step_size)
+
+            # Ensure full_seqlen is included
+            if len(post_m) == 0 or post_m[-1] < full_seqlen:
+                post_m = np.append(post_m, full_seqlen)
+
+            post_s = np.full(len(post_m), scores[-1])
+            midpoints = np.concatenate((midpoints, post_m))
+            scores = np.concatenate((scores, post_s))
 
     # 5. Determine coding status for each window
     # Check the boolean mask at the exact midpoint index
@@ -4564,16 +4535,22 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     # Data prep for Identity Ring ---
     if include_coding and show_noncoding:
         id_label = "Genome ID"
-        scores_to_plot = sorted(original_coding_scores + original_non_coding_scores, key=lambda x: x[0])
+        raw_scores = sorted(original_coding_scores + original_non_coding_scores, key=lambda x: x[0])
     elif include_coding and not show_noncoding:
         id_label = "Coding ID"
-        scores_to_plot = original_coding_scores
+        raw_scores = original_coding_scores
     elif not include_coding and show_noncoding:
         id_label = "Non-Coding ID"
-        scores_to_plot = original_non_coding_scores
+        raw_scores = original_non_coding_scores
     else:
         id_label = "No Identity Data"
-        scores_to_plot = []
+        raw_scores = []
+
+        # [UPDATED] Apply Region Limit to Identity Scores for Legend/Autofit
+    if limit_region:
+        scores_to_plot = [(p, s) for p, s in raw_scores if region_start <= p < region_end]
+    else:
+        scores_to_plot = raw_scores
 
     # Calculate ID thickness geometry first
     if not id_ring_color_only and (plot_params.get("auto_thickness_rings", False) or is_initial_load):
@@ -4719,7 +4696,8 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
 
     # Filter BLAST data
     homology_filtered_df = original_blast_df[
-        (original_blast_df['pident'] >= homology_thresh_min) & (original_blast_df['pident'] <= homology_thresh_max)]
+        (original_blast_df['pident'] >= homology_thresh_min) &
+        (original_blast_df['pident'] <= homology_thresh_max)]
 
     if show_blast_coding and show_blast_noncoding:
         filtered_blast_df = homology_filtered_df
@@ -4730,11 +4708,16 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     else:
         filtered_blast_df = pd.DataFrame(columns=homology_filtered_df.columns)
 
-    # Color scaling setup
+    if limit_region and not filtered_blast_df.empty:
+        # Filter for visibility in region: (Start < RegionEnd) AND (End > RegionStart)
+        mask = (filtered_blast_df['qstart'] < region_end) & (filtered_blast_df['qend'] > region_start)
+        filtered_blast_df = filtered_blast_df[mask]
+
+    # Color scaling setup (Now uses filtered data for min/max)
     color_vmin = filtered_blast_df['pident'].min() if (
-                autofit_color_range and not filtered_blast_df.empty) else homology_thresh_min
+            autofit_color_range and not filtered_blast_df.empty) else homology_thresh_min
     color_vmax = filtered_blast_df['pident'].max() if (
-                autofit_color_range and not filtered_blast_df.empty) else homology_thresh_max
+            autofit_color_range and not filtered_blast_df.empty) else homology_thresh_max
 
     # Colormap setup
     LOWERCASE_CMAPS = {'plasma', 'viridis', 'inferno', 'magma', 'cividis', 'turbo', 'coolwarm', 'gist_earth', 'terrain',
@@ -5587,7 +5570,7 @@ def draw_gc_and_skew_plot(ax, graphic, gc_arr, skew_arr, seqlen, inner_radius=0.
             gc_median = np.median(gc)
             r_outer_gc = r_inner_gc + R * gc_thickness * (gc - gc_median)
             for i in range(len(theta) - 1):
-                if (np.isnan(r_outer_gc[i]) or np.isnan(r_outer_gc[i + 1])): continue
+                if np.isnan(r_outer_gc[i]) or np.isnan(r_outer_gc[i + 1]): continue
 
                 verts = [
                     (r_outer_gc[i] * np.cos(theta[i]), r_outer_gc[i] * np.sin(theta[i]) - R),
@@ -6336,7 +6319,8 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
 
     # Calculate font size with spacing awareness
     # Force canvas draw if we recalculated the view to ensure ax_bbox is accurate
-    if recalculate:
+    # FIX: Ensure we draw if limit_region is on, as we critically depend on bounding boxes
+    if recalculate or limit_region:
         try:
             ax.figure.canvas.draw()
         except Exception:
@@ -6420,19 +6404,27 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
 
         if limit_region:
             all_plot_artists = ax.patches + ax.lines + ax.collections
+
+            # Try to get visual extent
+            plot_bbox = None
             if all_plot_artists:
-                plot_bboxes = [a.get_window_extent(renderer=renderer) for a in all_plot_artists]
-                valid_bboxes = [b for b in plot_bboxes if b.width > 0 and b.height > 0]
-                if valid_bboxes:
-                    plot_bbox = mtransforms.Bbox.union(valid_bboxes).transformed(inv)
-                    plot_left_edge = plot_bbox.p0[0]
-                    plot_right_edge = plot_bbox.p1[0]
-                else:
-                    plot_left_edge = xlim_min
-                    plot_right_edge = xlim_max
+                try:
+                    # Filter out artists with 0 width/height (unrendered or empty)
+                    plot_bboxes = [a.get_window_extent(renderer=renderer) for a in all_plot_artists]
+                    valid_bboxes = [b for b in plot_bboxes if b.width > 0 and b.height > 0]
+                    if valid_bboxes:
+                        plot_bbox = mtransforms.Bbox.union(valid_bboxes).transformed(inv)
+                except Exception:
+                    pass  # Fallback to geometric calc if renderer fails
+
+            if plot_bbox:
+                plot_left_edge = plot_bbox.p0[0]
+                plot_right_edge = plot_bbox.p1[0]
             else:
-                plot_left_edge = xlim_min
-                plot_right_edge = xlim_max
+                # Geometric Fallback
+                plot_left_edge = max(xlim_min, -R)
+                plot_right_edge = min(xlim_max, R)
+            # --------------------------------------
         else:
             plot_left_edge = xlim_min
             plot_right_edge = xlim_max
@@ -6506,11 +6498,15 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
             sorted_anchors_by_feature = sorted(anchor_list_side, key=lambda a: a['y'], reverse=True)
             n = len(sorted_anchors_by_feature)
 
-            if side == "right": text_x_pos = plot_right_edge + horizontal_offset
-            else: text_x_pos = plot_left_edge - horizontal_offset
+            if side == "right":
+                text_x_pos = plot_right_edge + horizontal_offset
+            else:
+                text_x_pos = plot_left_edge - horizontal_offset
 
-            if n > 1: label_y_positions = np.linspace(final_top_bound, final_bottom_bound, n)
-            else: label_y_positions = [(final_top_bound + final_bottom_bound) / 2.0]
+            if n > 1:
+                label_y_positions = np.linspace(final_top_bound, final_bottom_bound, n)
+            else:
+                label_y_positions = [(final_top_bound + final_bottom_bound) / 2.0]
 
             for i, anchor in enumerate(sorted_anchors_by_feature):
                 anchor['label_y'] = label_y_positions[i]
@@ -6753,10 +6749,14 @@ def _format_blast_df_for_excel(blast_df):
         df['ref_stop'] = np.maximum(sstart, send)
 
     df = df.rename(columns={
-        "qstart": "query_start",
-        "qend": "query_end",
-        "qseq": "aligned_query_sequence",
-        "sseq": "aligned_reference_sequence",
+        "qstart": "Query Start",
+        "qend": "Query End",
+        "qseq": "Aligned Query Sequence",
+        "sseq": "Aligned Reference Sequence",
+        "query_strand": "Query Strand",
+        "ref_strand": "Ref Strand",
+        "identity_excl_gaps": "Identity (%) Excl Gaps",
+        "identity_incl_gaps": "Identity (%) Incl Gaps",
         "difference_string": "Difference String",
         "query_mismatches_marked": "Query with Mismatches (#)",
         "query_differences_only": "Query Differences Only",
@@ -6765,25 +6765,120 @@ def _format_blast_df_for_excel(blast_df):
 
     # --- OPTIMIZATION 2: Faster String Replacement ---
     # Adding regex=False makes the replacement faster for simple literals
-    if 'aligned_query_sequence' in df.columns:
-        df['Original Query Sequence'] = df['aligned_query_sequence'].astype(str).str.replace('-', '', regex=False)
-    if 'aligned_reference_sequence' in df.columns:
-        df['Original Reference Sequence'] = df['aligned_reference_sequence'].astype(str).str.replace('-', '',
+    if 'Aligned Query Sequence' in df.columns:
+        df['Original Query Sequence'] = df['Aligned Query Sequence'].astype(str).str.replace('-', '', regex=False)
+    if 'Aligned Reference Sequence' in df.columns:
+        df['Original Reference Sequence'] = df['Aligned Reference Sequence'].astype(str).str.replace('-', '',
                                                                                                      regex=False)
 
     final_cols = [
-        "query_start", "query_end", "query_strand",
-        "ref_start", "ref_stop", "ref_strand",
-        "identity_excl_gaps", "identity_incl_gaps",
+        "Query Start", "Query End", "Query Strand",
+        "Ref Start", "Ref Stop", "Ref Strand",
+        "Identity (%) Excl Gaps", "Identity (%) Incl Gaps",
         "Original Query Sequence", "Original Reference Sequence",
-        "aligned_query_sequence", "aligned_reference_sequence",
+        "Aligned Query Sequence", "Aligned Reference Sequence",
         "Difference String", "Query with Mismatches (#)",
         "Query Differences Only", "Reference Differences Only",
         "sseqid", "evalue", "bitscore"
     ]
 
     existing_cols = [col for col in final_cols if col in df.columns]
-    return df[existing_cols].sort_values(by="query_start").reset_index(drop=True)
+    return df[existing_cols].sort_values(by="Query Start").reset_index(drop=True)
+
+
+def _adjust_excel_column_widths(filepath):
+    """
+    Adjust Excel column widths after file creation and format number columns.
+    - Homology Report (Genes): Auto-fit all columns to fit all data
+    - All other sheets: Auto-fit non-sequence columns to all data,
+                        sequence columns to headers only
+    - Identity columns: Format to show up to 12 decimal places
+    """
+    from openpyxl import load_workbook
+    from openpyxl.styles import numbers
+
+    # Sequence column keywords to identify columns that should fit headers only
+    sequence_keywords = [
+        "Query Sequence", "Reference Sequence", "Aligned", "Difference String",
+        "Mismatches", "Differences Only"
+    ]
+
+    # Identity column keywords for number formatting
+    identity_keywords = ["Identity"]
+
+    def is_sequence_column(col_name):
+        """Check if column contains sequence data"""
+        return any(keyword in col_name for keyword in sequence_keywords)
+
+    def is_identity_column(col_name):
+        """Check if column contains identity values that should be formatted"""
+        return any(keyword in col_name for keyword in identity_keywords)
+
+    try:
+        wb = load_workbook(filepath)
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+
+            # Determine if this is the Homology Report sheet
+            is_homology_sheet = "Homology Report" in sheet_name
+
+            # Get all columns
+            for col_idx, col in enumerate(ws.columns, 1):
+                col_letter = col[0].column_letter
+
+                # Get header (first row)
+                header = ws.cell(row=1, column=col_idx).value
+                if header is None:
+                    continue
+
+                header_str = str(header)
+
+                # Format identity columns with up to 12 decimal places, no trailing zeros or decimal point
+                if is_identity_column(header_str):
+                    for row_idx in range(2, ws.max_row + 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        val = cell.value
+                        # Check if value is a whole number or has decimals
+                        if val is not None and isinstance(val, (int, float)):
+                            if val == int(val):
+                                # Whole number - no decimals
+                                cell.number_format = '0'
+                            else:
+                                # Has decimals - show up to 12 decimal places without trailing zeros
+                                cell.number_format = '0.############'
+
+                # Determine if we should fit headers only or all data
+                fit_headers_only = False
+                if not is_homology_sheet and is_sequence_column(header_str):
+                    fit_headers_only = True
+
+                # Calculate width
+                if fit_headers_only:
+                    width = len(header_str)
+                else:
+                    # Get all values in column (excluding header)
+                    col_values = [ws.cell(row=row_idx, column=col_idx).value
+                                 for row_idx in range(2, ws.max_row + 1)]
+                    max_length = len(header_str)
+                    for val in col_values:
+                        val_len = len(str(val)) if val is not None else 0
+                        max_length = max(max_length, val_len)
+                    width = min(max_length, 50)
+
+                # Set minimum width
+                width = max(width, 8)
+
+                # Apply width
+                ws.column_dimensions[col_letter].width = width
+
+        # Save the workbook
+        wb.save(filepath)
+        print(f"[EXCEL] Column widths and number formatting adjusted for: {filepath}")
+
+    except Exception as e:
+        print(f"[WARNING] Could not adjust Excel column widths: {e}")
+        traceback.print_exc()
 
 
 def _save_figure_with_aspect_ratio(fig, ax, filepath, max_width, max_height):
@@ -7207,7 +7302,7 @@ class PlottingWindow(tk.Toplevel):
                 bind_recursive(child)
 
         bind_recursive(self.scrollable_frame)
-        
+
         # Trigger the initial plot with applied parameters
         self.after(100, self.update_plot)
 
@@ -8240,24 +8335,24 @@ class PlottingWindow(tk.Toplevel):
     def _apply_initial_params(self, initial_params):
         """
         Apply initial parameters from main window to plot_params.
-        Respects auto-options: 
+        Respects auto-options:
         - If autofit_label_fontsize is True, ignore label_fontsize
         - If use_smart_layout is True, ignore label_spread, label_distance_factor, label_line_radial_len, label_line_horizontal_len, curve_tension
         - If auto_thickness_rings is True, ignore gc_thick and skew_thick
         """
         if not initial_params:
             return
-        
+
         # Boolean flags for auto-options
         autofit_fontsize = initial_params.get("autofit_label_fontsize", True)
         use_smart_layout = initial_params.get("use_smart_layout", True)
         auto_thickness = initial_params.get("auto_thickness_rings", True)
-        
+
         # Parameters that should be ignored if certain auto-options are enabled
         ignore_if_autofit = {"label_fontsize"}
         ignore_if_smart_layout = {"label_spread", "label_distance_factor", "label_line_radial_len", "label_line_horizontal_len", "curve_tension"}
         ignore_if_auto_thickness = {"gc_thick", "skew_thick"}
-        
+
         for key, value in initial_params.items():
             # Skip parameters based on auto-option settings
             if autofit_fontsize and key in ignore_if_autofit:
@@ -8266,7 +8361,7 @@ class PlottingWindow(tk.Toplevel):
                 continue
             if auto_thickness and key in ignore_if_auto_thickness:
                 continue
-            
+
             # Apply parameter if it exists in plot_params
             if key in self.plot_params:
                 self.plot_params[key].set(value)
@@ -9250,13 +9345,21 @@ class PlottingWindow(tk.Toplevel):
             for f in self.data["gene_feats"]:
                 if f.label and getattr(f, 'best_identity', 0) >= homology_threshold:
                     gene_name = _nice_label(f.label, 100)
+                    # Extract gene ID from feature attributes
+                    gene_id = "N/A"
+                    attrs = getattr(f, "attributes", {}) or {}
+                    gene_id_value = _get_attr_value(attrs, "ID")
+                    if gene_id_value:
+                        gene_id = gene_id_value
+                    query_start = int(f.start)
+                    query_stop = int(f.end)
                     ref_start = min(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
                     ref_stop = max(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
                     identity = f"{f.best_identity:.2f}"
                     accession = getattr(f, 'best_sseqid', 'N/A')
-                    homology_hits.append((gene_name, ref_start, ref_stop, identity, accession))
-            homology_df = pd.DataFrame(sorted(homology_hits, key=lambda x: x[1]),
-                                       columns=["Gene Name", "Reference Start", "Reference Stop", "Identity (%)",
+                    homology_hits.append((gene_name, gene_id, query_start, query_stop, ref_start, ref_stop, identity, accession))
+            homology_df = pd.DataFrame(sorted(homology_hits, key=lambda x: x[2]),
+                                       columns=["Gene Name", "ID", "Query Start", "Query Stop", "Reference Start", "Reference Stop", "Identity (%)",
                                                 "Accession"])
             enriched_blast_df = self.data.get("blast_df", pd.DataFrame())
             blast_all_df = _format_blast_df_for_excel(enriched_blast_df)
@@ -9269,34 +9372,45 @@ class PlottingWindow(tk.Toplevel):
                 if not df.empty:
                     df = df.rename(
                         columns={
+                            "gene_name": "Gene Name",
+                            "gene_id": "Gene ID",
+                            "query_start": "Query Start",
+                            "query_end": "Query End",
+                            "query_strand": "Query Strand",
+                            "ref_start": "Ref Start",
+                            "ref_stop": "Ref Stop",
+                            "ref_strand": "Ref Strand",
                             "identity_excl_gaps": "Identity (%) Excl Gaps",
                             "identity_incl_gaps": "Identity (%) Incl Gaps",
                             "original_query_sequence": "Original Query Sequence",
                             "original_reference_sequence": "Original Reference Sequence",
+                            "aligned_query_sequence": "Aligned Query Sequence",
+                            "aligned_reference_sequence": "Aligned Reference Sequence",
                         }
                     )
-                    if "query_strand" in df.columns:
-                        df["query_strand"] = df["query_strand"].replace(
+                    if "Query Strand" in df.columns:
+                        df["Query Strand"] = df["Query Strand"].replace(
                             {1: "+", -1: "-", "1": "+", "-1": "-"}
                         )
-                    if "ref_strand" in df.columns:
-                        df["ref_strand"] = df["ref_strand"].replace(
+                    if "Ref Strand" in df.columns:
+                        df["Ref Strand"] = df["Ref Strand"].replace(
                             {1: "+", -1: "-", "1": "+", "-1": "-"}
                         )
                     cols = [
-                        "gene_name",
-                        "query_start",
-                        "query_end",
-                        "query_strand",
-                        "ref_start",
-                        "ref_stop",
-                        "ref_strand",
+                        "Gene Name",
+                        "Gene ID",
+                        "Query Start",
+                        "Query End",
+                        "Query Strand",
+                        "Ref Start",
+                        "Ref Stop",
+                        "Ref Strand",
                         "Original Query Sequence",
                         "Original Reference Sequence",
                         "Identity (%) Excl Gaps",
                         "Identity (%) Incl Gaps",
-                        "aligned_query_sequence",
-                        "aligned_reference_sequence",
+                        "Aligned Query Sequence",
+                        "Aligned Reference Sequence",
                     ]
                     if "difference_string" in df.columns:
                         df = df.rename(
@@ -9318,7 +9432,7 @@ class PlottingWindow(tk.Toplevel):
 
                     final_cols = [c for c in cols if c in df.columns]
                     df = df[final_cols].copy()
-                    df = df.sort_values(by="query_start").reset_index(drop=True)
+                    df = df.sort_values(by="Query Start").reset_index(drop=True)
                 return df
 
             def process_lcb_df(lcb_list):
@@ -9326,34 +9440,42 @@ class PlottingWindow(tk.Toplevel):
                 if not df.empty:
                     df = df.rename(
                         columns={
+                            "query_start": "Query Start",
+                            "query_end": "Query End",
+                            "query_strand": "Query Strand",
+                            "ref_start": "Ref Start",
+                            "ref_stop": "Ref Stop",
+                            "ref_strand": "Ref Strand",
                             "identity_excl_gaps": "Identity (%) Excl Gaps",
                             "identity_incl_gaps": "Identity (%) Incl Gaps",
                             "original_query_sequence": "Original Query Sequence",
                             "original_reference_sequence": "Original Reference Sequence",
+                            "aligned_query_sequence": "Aligned Query Sequence",
+                            "aligned_reference_sequence": "Aligned Reference Sequence",
                         }
                     )
 
-                    if "query_strand" in df.columns:
-                        df["query_strand"] = df["query_strand"].replace(
+                    if "Query Strand" in df.columns:
+                        df["Query Strand"] = df["Query Strand"].replace(
                             {1: "+", -1: "-", "1": "+", "-1": "-"}
                         )
-                    if "ref_strand" in df.columns:
-                        df["ref_strand"] = df["ref_strand"].replace(
+                    if "Ref Strand" in df.columns:
+                        df["Ref Strand"] = df["Ref Strand"].replace(
                             {1: "+", -1: "-", "1": "+", "-1": "-"}
                         )
                     cols = [
-                        "query_start",
-                        "query_end",
-                        "query_strand",
-                        "ref_start",
-                        "ref_stop",
-                        "ref_strand",
+                        "Query Start",
+                        "Query End",
+                        "Query Strand",
+                        "Ref Start",
+                        "Ref Stop",
+                        "Ref Strand",
                         "Original Query Sequence",
                         "Original Reference Sequence",
                         "Identity (%) Excl Gaps",
                         "Identity (%) Incl Gaps",
-                        "aligned_query_sequence",
-                        "aligned_reference_sequence",
+                        "Aligned Query Sequence",
+                        "Aligned Reference Sequence",
                     ]
                     if "difference_string" in df.columns:
                         df = df.rename(
@@ -9375,7 +9497,7 @@ class PlottingWindow(tk.Toplevel):
 
                     final_cols = [c for c in cols if c in df.columns]
                     df = df[final_cols].copy()
-                    df = df.sort_values(by="query_start").reset_index(drop=True)
+                    df = df.sort_values(by="Query Start").reset_index(drop=True)
                 return df
 
             mauve_lcb_df = process_lcb_df(self.data.get("mauve_data", {}).get("lcb_data", []))
@@ -9412,11 +9534,23 @@ class PlottingWindow(tk.Toplevel):
             blast_intergenic_records = blast_intergenic_df.to_dict('records')
             for record in blast_intergenic_records:
                 record['algorithm'] = 'BLAST'
-                # Convert capitalized column names to lowercase with underscores
+                # Convert capitalized column names back to lowercase with underscores to match Mauve/SibeliaZ format
                 if 'Original Query Sequence' in record:
                     record['original_query_sequence'] = record.pop('Original Query Sequence')
                 if 'Original Reference Sequence' in record:
                     record['original_reference_sequence'] = record.pop('Original Reference Sequence')
+                if 'Difference String' in record:
+                    record['difference_string'] = record.pop('Difference String')
+                if 'Query with Mismatches (#)' in record:
+                    record['query_mismatches_marked'] = record.pop('Query with Mismatches (#)')
+                if 'Query Differences Only' in record:
+                    record['query_differences_only'] = record.pop('Query Differences Only')
+                if 'Reference Differences Only' in record:
+                    record['ref_differences_only'] = record.pop('Reference Differences Only')
+                if 'Aligned Query Sequence' in record:
+                    record['aligned_query_sequence'] = record.pop('Aligned Query Sequence')
+                if 'Aligned Reference Sequence' in record:
+                    record['aligned_reference_sequence'] = record.pop('Aligned Reference Sequence')
                 combined_intergenic_data.append(record)
 
             legacy_lcb_df, legacy_intergenic_lcb_df = pd.DataFrame(), pd.DataFrame()
@@ -9451,30 +9585,42 @@ class PlottingWindow(tk.Toplevel):
             if not combined_intergenic_df.empty:
                 # Single rename to standardize column names from all sources
                 combined_intergenic_df = combined_intergenic_df.rename(columns={
+                    "algorithm": "Algorithm",
+                    "query_start": "Query Start",
+                    "query_end": "Query End",
+                    "query_strand": "Query Strand",
+                    "ref_start": "Ref Start",
+                    "ref_stop": "Ref Stop",
+                    "ref_strand": "Ref Strand",
                     "identity_excl_gaps": "Identity (%) Excl Gaps",
                     "identity_incl_gaps": "Identity (%) Incl Gaps",
                     "original_query_sequence": "Original Query Sequence",
-                    "original_reference_sequence": "Original Reference Sequence"
+                    "original_reference_sequence": "Original Reference Sequence",
+                    "aligned_query_sequence": "Aligned Query Sequence",
+                    "aligned_reference_sequence": "Aligned Reference Sequence",
                 })
 
-                if 'query_strand' in combined_intergenic_df.columns:
-                    combined_intergenic_df['query_strand'] = combined_intergenic_df['query_strand'].replace(
+                if 'Query Strand' in combined_intergenic_df.columns:
+                    combined_intergenic_df['Query Strand'] = combined_intergenic_df['Query Strand'].replace(
                         {1: '+', -1: '-', '1': '+', '-1': '-'})
-                if 'ref_strand' in combined_intergenic_df.columns:
-                    combined_intergenic_df['ref_strand'] = combined_intergenic_df['ref_strand'].replace(
+                if 'Ref Strand' in combined_intergenic_df.columns:
+                    combined_intergenic_df['Ref Strand'] = combined_intergenic_df['Ref Strand'].replace(
                         {1: '+', -1: '-', '1': '+', '-1': '-'})
 
-                cols = ["algorithm", "query_start", "query_end", "query_strand",
-                        "ref_start", "ref_stop", "ref_strand",
+                cols = ["Algorithm", "Query Start", "Query End", "Query Strand",
+                        "Ref Start", "Ref Stop", "Ref Strand",
                         "Identity (%) Excl Gaps", "Identity (%) Incl Gaps",
                         "Original Query Sequence", "Original Reference Sequence",
-                        "aligned_query_sequence", "aligned_reference_sequence",
+                        "Aligned Query Sequence", "Aligned Reference Sequence",
                         "Difference String", "Query with Mismatches (#)",
                         "Query Differences Only", "Reference Differences Only"]
 
                 final_cols = [c for c in cols if c in combined_intergenic_df.columns]
                 combined_intergenic_df = combined_intergenic_df[final_cols].copy()
-                combined_intergenic_df = combined_intergenic_df.sort_values(by="query_start").reset_index(drop=True)
+                # Remove duplicate columns if any
+                combined_intergenic_df = combined_intergenic_df.loc[:, ~combined_intergenic_df.columns.duplicated()]
+                if not combined_intergenic_df.empty:
+                    combined_intergenic_df = combined_intergenic_df.sort_values(by="Query Start").reset_index(drop=True)
 
             seqlen = self.data["seqlen"]
             gc_window_size = self.data.get("gc_window_size", self.plot_params["gc_window_size"].get())
@@ -9488,16 +9634,16 @@ class PlottingWindow(tk.Toplevel):
                 ends = np.minimum(starts + gc_window_size - 1, seqlen)
 
                 gc_full_df = pd.DataFrame({
-                    "window_start": starts,
-                    "window_end": ends,
-                    "gc_content_percent": gc_vals,
-                    "gc_skew": skew_vals
+                    "Window Start": starts,
+                    "Window End": ends,
+                    "GC Content (%)": gc_vals,
+                    "GC Skew": skew_vals
                 })
             else:
-                gc_full_df = pd.DataFrame(columns=["window_start", "window_end", "gc_content_percent", "gc_skew"])
+                gc_full_df = pd.DataFrame(columns=["Window Start", "Window End", "GC Content (%)", "GC Skew"])
 
-            gc_skew_df = gc_full_df[["window_start", "window_end", "gc_skew"]]
-            gc_content_df = gc_full_df[["window_start", "window_end", "gc_content_percent"]]
+            gc_skew_df = gc_full_df[["Window Start", "Window End", "GC Skew"]]
+            gc_content_df = gc_full_df[["Window Start", "Window End", "GC Content (%)"]]
             MIN_IDENTITY_THRESHOLD = 60.0
             identity_col = "Identity (%) Excl Gaps"
 
@@ -9544,6 +9690,9 @@ class PlottingWindow(tk.Toplevel):
                 combined_intergenic_df.to_excel(writer, sheet_name="Combined Intergenic Blocks", index=False)
                 gc_skew_df.to_excel(writer, sheet_name="GC Skew", index=False)
                 gc_content_df.to_excel(writer, sheet_name="GC Content", index=False)
+
+            # Adjust column widths
+            _adjust_excel_column_widths(filepath)
 
             try:
                 log_filepath = Path(filepath).with_suffix('.log.txt')
@@ -10592,12 +10741,20 @@ class App(tk.Tk):
                     identity = getattr(f, 'best_identity', 0)
                     if plot_params['homology_thresh'] <= identity <= 100.0:
                         gene_name = _nice_label(f.label, 100)
+                        # Extract gene ID from feature attributes
+                        gene_id = "N/A"
+                        attrs = getattr(f, "attributes", {}) or {}
+                        gene_id_value = _get_attr_value(attrs, "ID")
+                        if gene_id_value:
+                            gene_id = gene_id_value
+                        query_start = int(f.start)
+                        query_stop = int(f.end)
                         ref_start = min(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
                         ref_stop = max(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
                         accession = getattr(f, 'best_sseqid', 'N/A')
-                        homology_hits.append((gene_name, ref_start, ref_stop, f"{identity:.2f}", accession))
-            homology_df = pd.DataFrame(sorted(homology_hits, key=lambda x: x[1]),
-                                       columns=["Gene Name", "Reference Start", "Reference Stop", "Identity (%)",
+                        homology_hits.append((gene_name, gene_id, query_start, query_stop, ref_start, ref_stop, f"{identity:.2f}", accession))
+            homology_df = pd.DataFrame(sorted(homology_hits, key=lambda x: x[2]),
+                                       columns=["Gene Name", "ID", "Query Start", "Query Stop", "Reference Start", "Reference Stop", "Identity (%)",
                                                 "Accession"])
 
             enriched_blast_df = data.get("blast_df", pd.DataFrame())
@@ -10610,34 +10767,48 @@ class App(tk.Tk):
                 """Process coding LCB data with gene_name as first column."""
                 df = pd.DataFrame(lcb_list)
                 if not df.empty:
-                    df = df.rename(columns={
-                        "identity_excl_gaps": "Identity (%) Excl Gaps",
-                        "identity_incl_gaps": "Identity (%) Incl Gaps",
-                        "original_query_sequence": "Original Query Sequence",
-                        "original_reference_sequence": "Original Reference Sequence",
-                    })
-
-                    if 'query_strand' in df.columns:
-                        df['query_strand'] = df['query_strand'].replace({1: '+', -1: '-', '1': '+', '-1': '-'})
-                    if 'ref_strand' in df.columns:
-                        df['ref_strand'] = df['ref_strand'].replace({1: '+', -1: '-', '1': '+', '-1': '-'})
-
+                    df = df.rename(
+                        columns={
+                            "gene_name": "Gene Name",
+                            "gene_id": "Gene ID",
+                            "query_start": "Query Start",
+                            "query_end": "Query End",
+                            "query_strand": "Query Strand",
+                            "ref_start": "Ref Start",
+                            "ref_stop": "Ref Stop",
+                            "ref_strand": "Ref Strand",
+                            "identity_excl_gaps": "Identity (%) Excl Gaps",
+                            "identity_incl_gaps": "Identity (%) Incl Gaps",
+                            "original_query_sequence": "Original Query Sequence",
+                            "original_reference_sequence": "Original Reference Sequence",
+                            "aligned_query_sequence": "Aligned Query Sequence",
+                            "aligned_reference_sequence": "Aligned Reference Sequence",
+                        }
+                    )
+                    if "Query Strand" in df.columns:
+                        df["Query Strand"] = df["Query Strand"].replace(
+                            {1: "+", -1: "-", "1": "+", "-1": "-"}
+                        )
+                    if "Ref Strand" in df.columns:
+                        df["Ref Strand"] = df["Ref Strand"].replace(
+                            {1: "+", -1: "-", "1": "+", "-1": "-"}
+                        )
                     cols = [
-                        "gene_name",
-                        "query_start",
-                        "query_end",
-                        "query_strand",
-                        "ref_start",
-                        "ref_stop",
-                        "ref_strand",
+                        "Gene Name",
+                        "Gene ID",
+                        "Query Start",
+                        "Query End",
+                        "Query Strand",
+                        "Ref Start",
+                        "Ref Stop",
+                        "Ref Strand",
                         "Original Query Sequence",
                         "Original Reference Sequence",
                         "Identity (%) Excl Gaps",
                         "Identity (%) Incl Gaps",
-                        "aligned_query_sequence",
-                        "aligned_reference_sequence",
+                        "Aligned Query Sequence",
+                        "Aligned Reference Sequence",
                     ]
-
                     if "difference_string" in df.columns:
                         df = df.rename(columns={
                             "difference_string": "Difference String",
@@ -10649,37 +10820,45 @@ class App(tk.Tk):
 
                     final_cols = [c for c in cols if c in df.columns]
                     df = df[final_cols].copy()
-                    df = df.sort_values(by="query_start").reset_index(drop=True)
+                    df = df.sort_values(by="Query Start").reset_index(drop=True)
                 return df
 
             def process_lcb_df(lcb_list):
                 df = pd.DataFrame(lcb_list)
                 if not df.empty:
                     df = df.rename(columns={
+                        "query_start": "Query Start",
+                        "query_end": "Query End",
+                        "query_strand": "Query Strand",
+                        "ref_start": "Ref Start",
+                        "ref_stop": "Ref Stop",
+                        "ref_strand": "Ref Strand",
                         "identity_excl_gaps": "Identity (%) Excl Gaps",
                         "identity_incl_gaps": "Identity (%) Incl Gaps",
                         "original_query_sequence": "Original Query Sequence",
                         "original_reference_sequence": "Original Reference Sequence",
+                        "aligned_query_sequence": "Aligned Query Sequence",
+                        "aligned_reference_sequence": "Aligned Reference Sequence",
                     })
 
-                    if 'query_strand' in df.columns:
-                        df['query_strand'] = df['query_strand'].replace({1: '+', -1: '-', '1': '+', '-1': '-'})
-                    if 'ref_strand' in df.columns:
-                        df['ref_strand'] = df['ref_strand'].replace({1: '+', -1: '-', '1': '+', '-1': '-'})
+                    if 'Query Strand' in df.columns:
+                        df['Query Strand'] = df['Query Strand'].replace({1: '+', -1: '-', '1': '+', '-1': '-'})
+                    if 'Ref Strand' in df.columns:
+                        df['Ref Strand'] = df['Ref Strand'].replace({1: '+', -1: '-', '1': '+', '-1': '-'})
 
                     cols = [
-                        "query_start",
-                        "query_end",
-                        "query_strand",
-                        "ref_start",
-                        "ref_stop",
-                        "ref_strand",
+                        "Query Start",
+                        "Query End",
+                        "Query Strand",
+                        "Ref Start",
+                        "Ref Stop",
+                        "Ref Strand",
                         "Original Query Sequence",
                         "Original Reference Sequence",
                         "Identity (%) Excl Gaps",
                         "Identity (%) Incl Gaps",
-                        "aligned_query_sequence",
-                        "aligned_reference_sequence",
+                        "Aligned Query Sequence",
+                        "Aligned Reference Sequence",
                     ]
 
                     if "difference_string" in df.columns:
@@ -10693,7 +10872,7 @@ class App(tk.Tk):
 
                     final_cols = [c for c in cols if c in df.columns]
                     df = df[final_cols].copy()
-                    df = df.sort_values(by="query_start").reset_index(drop=True)
+                    df = df.sort_values(by="Query Start").reset_index(drop=True)
                 return df
 
             mauve_lcb_df = process_lcb_df(data.get("mauve_data", {}).get("lcb_data", []))
@@ -10717,11 +10896,23 @@ class App(tk.Tk):
             blast_intergenic_records = blast_intergenic_df.to_dict('records')
             for record in blast_intergenic_records:
                 record['algorithm'] = 'BLAST'
-                # Convert capitalized column names to lowercase with underscores
+                # Convert capitalized column names back to lowercase with underscores to match Mauve/SibeliaZ format
                 if 'Original Query Sequence' in record:
                     record['original_query_sequence'] = record.pop('Original Query Sequence')
                 if 'Original Reference Sequence' in record:
                     record['original_reference_sequence'] = record.pop('Original Reference Sequence')
+                if 'Difference String' in record:
+                    record['difference_string'] = record.pop('Difference String')
+                if 'Query with Mismatches (#)' in record:
+                    record['query_mismatches_marked'] = record.pop('Query with Mismatches (#)')
+                if 'Query Differences Only' in record:
+                    record['query_differences_only'] = record.pop('Query Differences Only')
+                if 'Reference Differences Only' in record:
+                    record['ref_differences_only'] = record.pop('Reference Differences Only')
+                if 'Aligned Query Sequence' in record:
+                    record['aligned_query_sequence'] = record.pop('Aligned Query Sequence')
+                if 'Aligned Reference Sequence' in record:
+                    record['aligned_reference_sequence'] = record.pop('Aligned Reference Sequence')
                 combined_intergenic_data.append(record)
             include_legacy = self.vars["run_legacy_report_on_save"].get()
             legacy_lcb_df = pd.DataFrame()
@@ -10751,27 +10942,39 @@ class App(tk.Tk):
             if not combined_intergenic_df.empty:
                 # Single rename to standardize column names from all sources
                 combined_intergenic_df = combined_intergenic_df.rename(columns={
+                    "algorithm": "Algorithm",
+                    "query_start": "Query Start",
+                    "query_end": "Query End",
+                    "query_strand": "Query Strand",
+                    "ref_start": "Ref Start",
+                    "ref_stop": "Ref Stop",
+                    "ref_strand": "Ref Strand",
                     "identity_excl_gaps": "Identity (%) Excl Gaps",
                     "identity_incl_gaps": "Identity (%) Incl Gaps",
                     "original_query_sequence": "Original Query Sequence",
-                    "original_reference_sequence": "Original Reference Sequence"
+                    "original_reference_sequence": "Original Reference Sequence",
+                    "aligned_query_sequence": "Aligned Query Sequence",
+                    "aligned_reference_sequence": "Aligned Reference Sequence",
                 })
-                if 'query_strand' in combined_intergenic_df.columns:
-                    combined_intergenic_df['query_strand'] = combined_intergenic_df['query_strand'].replace(
+                if 'Query Strand' in combined_intergenic_df.columns:
+                    combined_intergenic_df['Query Strand'] = combined_intergenic_df['Query Strand'].replace(
                         {1: '+', -1: '-', '1': '+', '-1': '-'})
-                if 'ref_strand' in combined_intergenic_df.columns:
-                    combined_intergenic_df['ref_strand'] = combined_intergenic_df['ref_strand'].replace(
+                if 'Ref Strand' in combined_intergenic_df.columns:
+                    combined_intergenic_df['Ref Strand'] = combined_intergenic_df['Ref Strand'].replace(
                         {1: '+', -1: '-', '1': '+', '-1': '-'})
-                cols = ["algorithm", "query_start", "query_end", "query_strand", "ref_start", "ref_stop", "ref_strand",
+                cols = ["Algorithm", "Query Start", "Query End", "Query Strand", "Ref Start", "Ref Stop", "Ref Strand",
                         "Identity (%) Excl Gaps", "Identity (%) Incl Gaps",
                         "Original Query Sequence", "Original Reference Sequence",
-                        "aligned_query_sequence",
-                        "aligned_reference_sequence",
+                        "Aligned Query Sequence",
+                        "Aligned Reference Sequence",
                         "Difference String", "Query with Mismatches (#)", "Query Differences Only",
                         "Reference Differences Only"]
                 final_cols = [c for c in cols if c in combined_intergenic_df.columns]
                 combined_intergenic_df = combined_intergenic_df[final_cols].copy()
-                combined_intergenic_df = combined_intergenic_df.sort_values(by="query_start").reset_index(drop=True)
+                # Remove duplicate columns if any
+                combined_intergenic_df = combined_intergenic_df.loc[:, ~combined_intergenic_df.columns.duplicated()]
+                if not combined_intergenic_df.empty:
+                    combined_intergenic_df = combined_intergenic_df.sort_values(by="Query Start").reset_index(drop=True)
 
                 seqlen = data["seqlen"]
                 gc_window_size = data.get("gc_window_size", 500)
@@ -10785,16 +10988,16 @@ class App(tk.Tk):
                     ends = np.minimum(starts + gc_window_size - 1, seqlen)
 
                     gc_full_df = pd.DataFrame({
-                        "window_start": starts,
-                        "window_end": ends,
-                        "gc_content_percent": gc_vals,
-                        "gc_skew": skew_vals
+                        "Window Start": starts,
+                        "Window End": ends,
+                        "GC Content (%)": gc_vals,
+                        "GC Skew": skew_vals
                     })
                 else:
                     # Fallback if no data exists
-                    gc_full_df = pd.DataFrame(columns=["window_start", "window_end", "gc_content_percent", "gc_skew"])
-            gc_skew_df = gc_full_df[["window_start", "window_end", "gc_skew"]]
-            gc_content_df = gc_full_df[["window_start", "window_end", "gc_content_percent"]]
+                    gc_full_df = pd.DataFrame(columns=["Window Start", "Window End", "GC Content (%)", "GC Skew"])
+            gc_skew_df = gc_full_df[["Window Start", "Window End", "GC Skew"]]
+            gc_content_df = gc_full_df[["Window Start", "Window End", "GC Content (%)"]]
             MIN_IDENTITY_THRESHOLD = 60.0
             identity_col = "Identity (%) Excl Gaps"
 
@@ -10840,6 +11043,9 @@ class App(tk.Tk):
                 combined_intergenic_df.to_excel(writer, sheet_name="Combined Intergenic Blocks", index=False)
                 gc_skew_df.to_excel(writer, sheet_name="GC Skew", index=False)
                 gc_content_df.to_excel(writer, sheet_name="GC Content", index=False)
+
+            # Adjust column widths
+            _adjust_excel_column_widths(report_xlsx_path)
         except Exception as e:
             self.status_label.config(text=f"Error during plot/report generation: {e}", fg="red")
             traceback.print_exc()
