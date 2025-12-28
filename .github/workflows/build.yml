@@ -76,7 +76,7 @@ jobs:
         run: |
           pyinstaller --noconfirm --windowed --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
 
-      # Download + extract progressiveMauve and place just the binary into dist/CGCT/tools/
+      # Download + extract progressiveMauve and place just the binary into dist/CGCT/Tools/
       - name: Fetch progressiveMauve (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
@@ -97,9 +97,9 @@ jobs:
             exit 1
           fi
 
-          mkdir -p "dist/${APP_NAME}/tools"
-          cp "$mauve_path" "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
-          chmod +x "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
+          mkdir -p "dist/${APP_NAME}/Tools"
+          cp "$mauve_path" "dist/${APP_NAME}/Tools/${{ matrix.target.mauve_bin }}"
+          chmod +x "dist/${APP_NAME}/Tools/${{ matrix.target.mauve_bin }}"
 
           # Ensure main app binary is executable too (usually already, but harmless)
           chmod +x "dist/${APP_NAME}/${APP_NAME}"
@@ -122,8 +122,8 @@ jobs:
             exit 1
           }
 
-          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\tools" | Out-Null
-          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\tools\${{ matrix.target.mauve_bin }}"
+          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\Tools" | Out-Null
+          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\Tools\${{ matrix.target.mauve_bin }}"
 
       # Upload the folder directly (no extra zip/tar we create), so users extract once.
       - name: Upload bundle folder
