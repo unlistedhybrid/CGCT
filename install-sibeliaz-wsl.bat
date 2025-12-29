@@ -1,14 +1,19 @@
 @echo off
 setlocal
 
-REM Get directory of this BAT file
+REM Check that WSL exists
+wsl --status >nul 2>&1 || (
+  echo WSL is not installed.
+  echo Install it with: wsl --install
+  pause
+  exit /b 1
+)
+
+REM Directory containing this BAT file
 set SCRIPT_DIR=%~dp0
 
-REM Convert "C:\path\to\CGCT\" -> "/mnt/c/path/to/CGCT"
-set DRIVE=%SCRIPT_DIR:~0,1%
-set REST=%SCRIPT_DIR:~3%
-set REST=%REST:\=/%
-set WSL_DIR=/mnt/%DRIVE%/%REST%
+REM Convert Windows path to WSL path using wslpath
+for /f "delims=" %%i in ('wsl wslpath "%SCRIPT_DIR%"') do set WSL_DIR=%%i
 
 echo Running installer in WSL...
 echo.
