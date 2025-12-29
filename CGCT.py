@@ -65,6 +65,7 @@ import numpy as np
 import pandas as pd
 import gffutils, Bio, shutil, tempfile, shlex, openpyxl
 from collections import defaultdict
+from openpyxl import load_workbook
 import tkinter.font as tkfont
 
 matplotlib.use("TkAgg")
@@ -77,7 +78,7 @@ warnings.filterwarnings("ignore", message=".*main thread is not in main loop.*")
 def run_quiet(args, **kwargs):
     """
     Runs a subprocess without flashing a console window on Windows packaged GUI apps.
-    Works fine on macOS/Linux too.
+    Works fine on macOS/Linux too. Doesn't hide WSL popup.
     """
     if platform.system() == "Windows":
         # CREATE_NO_WINDOW prevents the console popup
@@ -90,23 +91,6 @@ def run_quiet(args, **kwargs):
     return subprocess.run(args, **kwargs)
 
 GFFUTILS_COORD_OFFSET_GLOBAL = 0
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# GFF/GFF3 Coordinate System Reference
-# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-"""
-GFF3 (Generic Feature Format v3):
-  - Coordinates: 1-based, inclusive on both ends
-  - Example: position 1-100 includes positions 1 through 100
-  - Reference: https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
-
-GenBank (GBK):
-  - Coordinates: 0-based, half-open [start, end)
-  - Example: 0-100 means positions 0-99 (100 bases total)
-  - On import, converted to 1-based inclusive: (start+1, end)
-
-This program ALWAYS uses 1-based inclusive internally and in Excel exports.
-"""
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # Coordinate Validation Functions
@@ -555,7 +539,7 @@ def _run_sibeliaz_wsl(query_fa_win: str, ref_fa_win: str, out_dir_win: str, extr
 def _run_sibeliaz_docker(query_fasta, ref_fasta, output_dir, extra_args=None, timeout=None):
     """
     Runs SibeliaZ inside Docker (Mac-friendly).
-    UPDATED: Pulls public image, supports Apple Silicon (M1/M2), and respects active Docker context.
+    Pulls public image, supports Apple Silicon (M1/M2), and respects active Docker context.
     """
     print("\n" + "="*80)
     print("ENTERING _run_sibeliaz_docker")
@@ -567,7 +551,7 @@ def _run_sibeliaz_docker(query_fasta, ref_fasta, output_dir, extra_args=None, ti
     print(f"  extra_args: {extra_args}")
     print(f"  timeout: {timeout}")
 
-    # 1. PATH Setup (Preserved from original, but DOCKER_CONTEXT is removed)
+    # 1. PATH Setup
     print("\n[DEBUG SIBELIAZ] Setting up PATH environment...")
     original_path = os.environ.get("PATH", "")
     print(f"  Original PATH: {original_path[:150]}...")
@@ -728,7 +712,7 @@ def _run_progressive_mauve(query_fasta: Path, ref_fasta: Path, output_xmfa_path:
     if system == "windows":
         exe_name = "progressiveMauve.exe"
 
-    # All operating systems look for the executable in the Tools folder
+    # Look for the executable in the Tools folder
     tools_dir = script_dir / "Tools"
     mauve_exe_path = tools_dir / exe_name
 
@@ -999,7 +983,7 @@ def _validate_alignment_files(xmfa_path, maf_path, query_path, ref_path,
     xmfa_issues = []
     maf_issues = []
 
-    # --- XMFA Validation ---
+    # XMFA Validation
     if xmfa_path and Path(xmfa_path).is_file() and not force_mauve:
         try:
             q_name = Path(query_path).name
@@ -1044,7 +1028,7 @@ def _validate_alignment_files(xmfa_path, maf_path, query_path, ref_path,
         except Exception as e:
             print(f"[WARNING] Could not validate XMFA: {e}")
 
-    # --- MAF Validation ---
+    # MAF Validation
     if maf_path and Path(maf_path).is_file() and not force_sibeliaz:
         try:
             with open(maf_path, 'r') as f:
@@ -1052,7 +1036,6 @@ def _validate_alignment_files(xmfa_path, maf_path, query_path, ref_path,
                     if line.startswith('s '):
                         parts = line.split()
                         if len(parts) >= 6:
-                            # s src start size strand srcSize text
                             src = parts[1]
                             start = int(parts[2])
                             size = int(parts[3])
@@ -1079,7 +1062,7 @@ def _validate_alignment_files(xmfa_path, maf_path, query_path, ref_path,
         except Exception as e:
             print(f"[WARNING] Could not validate MAF: {e}")
 
-    # --- Construct Message ---
+    # Construct Message
     all_issues = xmfa_issues + maf_issues
 
     if all_issues:
@@ -1552,7 +1535,7 @@ def load_gene_features(annot_file: Path, fasta_id: str, highlight_intervals, all
                        seqlen=None):
     features = []
 
-    # --- GENBANK HANDLING ---
+    # GENBANK handling
     if annot_file.suffix.lower() in {".gb", ".gbk"}:
         # Attempt Strict Match
         for record in SeqIO.parse(annot_file, "genbank"):
@@ -1601,7 +1584,7 @@ def load_gene_features(annot_file: Path, fasta_id: str, highlight_intervals, all
         except Exception as e:
             raise RuntimeError(f"GenBank record not found or parse error: {e}")
 
-    # --- GFF3 HANDLING ---
+    # GFF3 handling
     unique_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
     db_path = annot_file.with_name(f"{annot_file.stem}_{unique_id}.gff.db")
     db = None
@@ -1614,7 +1597,7 @@ def load_gene_features(annot_file: Path, fasta_id: str, highlight_intervals, all
         db = gffutils.create_db(str(annot_file), dbfn=str(db_path), force=True, keep_order=True, merge_strategy="merge")
         db_seqids = list(db.seqids())
 
-        # --- VALIDATION LOGIC ---
+        # Validation logic
         issues = []
         target_gff_id = fasta_id
 
@@ -1639,7 +1622,7 @@ def load_gene_features(annot_file: Path, fasta_id: str, highlight_intervals, all
             except Exception as e:
                 print(f"[WARNING] Could not validate GFF coordinates: {e}")
 
-        # --- SHOW POPUP IF ISSUES EXIST ---
+        # Show popup if issues exist
         if issues:
             msg_header = "Annotation / Sequence Discrepancies Detected!\n\n"
             msg_body = "\n\n".join(issues)
@@ -1694,7 +1677,7 @@ def load_gene_features(annot_file: Path, fasta_id: str, highlight_intervals, all
         global GFFUTILS_COORD_OFFSET_GLOBAL
         GFFUTILS_COORD_OFFSET_GLOBAL = GFFUTILS_COORD_OFFSET
 
-        # --- FEATURE LOADING LOOP ---
+        # Feature loading loop
         primary_types = ["gene", "ORF", "rRNA", "tRNA", "ncRNA"]
         processed_feature_ids = set()
 
@@ -2041,7 +2024,6 @@ def _run_mauve_and_parse(query_fasta_path, ref_fasta_path, full_seqlen, log_queu
             non_gap_mask = (q_bytes != b'-')
 
             # Scores for non-gap positions
-            # [FIXED]: Removed double multiplication (M is already * 100)
             scores_to_apply = M[non_gap_mask].astype(int)
 
             # Calculate genomic indices all at once
@@ -2086,7 +2068,7 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
     Runs SibeliaZ (or uses cache/input), parses MAF, builds identity array,
     and extracts LCB data with dual identity calculations.
     """
-    # --- 1. Define status helper FIRST ---
+    # 1. Define status helper first
     def status(msg, color="black"):
         if log_queue: log_queue.put(("status", (msg, color)))
 
@@ -2098,7 +2080,7 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
     run_sibeliaz_now = False
     maf_file_to_parse = None
 
-    # --- 2. Check Cache ---
+    # 2. Check Cache
     if not force_sibeliaz and maf_file and Path(maf_file).is_file():
         status(f"Using user-provided SibeliaZ alignment: {Path(maf_file).name}", "blue")
         maf_file_to_parse = Path(maf_file)
@@ -2112,7 +2094,7 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
             status("No cache found. Running SibeliaZ WGA...", "black")
         run_sibeliaz_now = True
 
-    # --- 3. Execution Logic ---
+    # 3. Execution Logic
     if run_sibeliaz_now:
         status("Running SibeliaZ WGA...")
 
@@ -2166,7 +2148,7 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
 
         maf_file_to_parse = target_maf_file_path
 
-    # --- 4. Parsing Logic ---
+    # 4. Parsing Logic
     print(f"\nDEBUG: Parsing SibeliaZ MAF file: {maf_file_to_parse}")
     status("Parsing MAF and mapping LCBs (SibeliaZ)...")
 
@@ -2241,7 +2223,7 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
                 r_start_1idx = r_start_0idx_maf + 1
                 r_end_1idx = r_start_1idx + r_size_maf - 1
 
-            # --- VERIFICATION LOGIC (Restored) ---
+            # Verification Logic
             try:
                 ungapped_q = aln_q.replace("-", "")
                 ungapped_r = aln_r.replace("-", "")
@@ -2266,7 +2248,6 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
                             print(f"DEBUG [LCB {lcb_count}]: Ref string match ({found_r_start_1idx}) is >50bp from calculated coordinate ({r_start_1idx}). Diff: {diff_r}bp")
             except Exception as e_verify:
                 print(f"DEBUG [LCB {lcb_count}]: Error during string verification: {e_verify}")
-            # -------------------------------------
 
             identity_pct_ignore_gaps, identity_pct_gaps_as_mismatch = _calculate_fragment_identities(aln_q, aln_r)
 
@@ -2286,14 +2267,10 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
             valid_comparisons = is_not_gap_either.sum()
             total_lcb_matches += matches
             total_lcb_valid_comparisons += valid_comparisons
-
             M = (is_match & is_not_gap_either).astype(int)
             i_lcb_scores = M * 100
-
-            # [NEW FAST VECTORIZED UPDATE]
             q_bytes = np.frombuffer(aln_q.encode('ascii'), dtype='S1')
             non_gap_mask = (q_bytes != b'-')
-
             scores_to_apply = i_lcb_scores[non_gap_mask]
             num_bases = len(scores_to_apply)
 
@@ -2426,7 +2403,7 @@ def _attach_original_sequences_to_lcbs(lcb_list, query_seq, ref_seq, skip_coordi
         ungapped_q = aln_q.replace("-", "") if aln_q else ""
         ungapped_r = aln_r.replace("-", "") if aln_r else ""
 
-        # ========== QUERY SEQUENCE EXTRACTION ==========
+        # Query sequence extraction
         extracted_q = ""
         if 0 < q_start <= q_len and 0 < q_end <= q_len:
             # Normalize to get the leftmost and rightmost positions (1-indexed)
@@ -2826,8 +2803,6 @@ def _generate_intergenic_fragments(lcb_data, coding_intervals_0based, query_seq,
         if aln_len == 0:
             continue
 
-        # Build alignment-index -> query genomic position map ---
-
         q_idx2pos = {}
         q_left = min(q_start_1idx, q_end_1idx)
         q_right = max(q_start_1idx, q_end_1idx)
@@ -2902,8 +2877,7 @@ def _generate_intergenic_fragments(lcb_data, coding_intervals_0based, query_seq,
         r_lcb_left = r_lcb_start_0 + 1  # Convert to 1-based
         r_lcb_right = r_lcb_end_0
 
-        # For each intergenic span, extract fragment from alignment ---
-
+        # For each intergenic span, extract fragment from alignment
         for ig_start_0, ig_end_0 in intergenic_spans_0based:
             if ig_start_0 >= ig_end_0: continue
 
@@ -3312,7 +3286,7 @@ def calculate_global_kmer_ring_data(query_seq, ref_kmers_global_set, gene_featur
     """
     KMER_SIZE = 10
 
-    # --- Sliding window over the query sequence ---
+    # Sliding window over the query sequence
     coding_intervals = sorted([(f.start, f.end) for f in gene_features])
     coding_scores, non_coding_scores = [], []
     seqlen = len(query_seq)
@@ -3408,7 +3382,6 @@ def calculate_gc_skew_data(sequence, window_size):
         # GC Skew: (G-C) / (G+C)
         skew_vals = (g_counts - c_counts) / gc_sum
 
-    # Fix NaNs (where gc_sum is 0, skew is undefined -> 0.0)
     skew_vals = np.nan_to_num(skew_vals)
 
     # 3. Handle the "Tail" (remaining bases at the end)
@@ -3463,7 +3436,6 @@ def _sample_identity_profile(g_query_identity, full_seqlen, window_size, step_si
         return [], [], 0.0
 
     # 2. Create boolean mask for coding regions
-    # This replaces the repeated _is_coding() calls
     is_coding_mask = np.zeros(full_seqlen, dtype=bool)
     # gene_features uses 1-based inclusive coordinates
     for feat in gene_features:
@@ -3502,7 +3474,7 @@ def _sample_identity_profile(g_query_identity, full_seqlen, window_size, step_si
             # Generate points: first_mid-step, first_mid-2*step... down to 0
             pre_m = np.arange(first_mid - step_size, -1, -step_size)[::-1]
 
-            # Ensure 0 is included (fixes large gaps in Color-Only mode)
+            # Ensure 0 is included
             if len(pre_m) == 0 or pre_m[0] > 0:
                 pre_m = np.insert(pre_m, 0, 0)
 
@@ -4182,9 +4154,8 @@ def _determine_legend_items(data, plot_params, filtered_blast_df, bed_genes, hom
     """
     legend_items = []
 
-    # --- 1. Gene Features (ROI, Homologs, Non-Homologs) ---
+    # 1. Gene Features (ROI, Homologs, Non-Homologs)
     all_genes = data.get('gene_feats', [])
-
     roi_count, homolog_count, non_homolog_count = 0, 0, 0
 
     # Helper to check visibility based on plot limits
@@ -4228,13 +4199,13 @@ def _determine_legend_items(data, plot_params, filtered_blast_df, bed_genes, hom
     if non_homolog_count > 0:
         legend_items.append(('non_homolog', mpatches.Patch(color='#cccccc', label='Non-homologous Gene')))
 
-    # --- 2. GC Skew (Moved BEFORE GC Content) ---
+    # 2. GC Skew (Moved BEFORE GC Content)
     skew_arr = data.get("skew_arr")
     if skew_arr is not None and len(skew_arr) > 0:
         legend_items.append(('gc_skew_pos', plt.Line2D([0], [0], color='#33a02c', lw=1.2, label='GC Skew (+)')))
         legend_items.append(('gc_skew_neg', plt.Line2D([0], [0], color='#fb9a99', lw=1.2, label='GC Skew (-)')))
 
-    # --- 3. GC Content (Moved to End) ---
+    # 3. GC Content (Moved to End)
     gc_arr = data.get("gc_arr")
     if gc_arr is not None and len(gc_arr) > 0:
         gc_cmap_raw = plot_params.get("gc_colormap", "Grey")
@@ -4376,12 +4347,9 @@ def _create_legend_and_colorbars(fig, ax, data, plot_params, filtered_blast_df, 
         floor_y, ceiling_y = _calculate_safe_vertical_zone(fig, ax, legend_bbox_fig, text_objects)
 
         available_height = ceiling_y - floor_y
-
-        # Increased ideal height to be chunkier (was 0.02, now 0.035)
         ideal_cbar_height = 0.035
         text_padding_estimate = 0.045
         required_height = ideal_cbar_height + text_padding_estimate
-
         final_cbar_height = ideal_cbar_height
 
         # Calculate resize factor if space is tight
@@ -4408,7 +4376,6 @@ def _create_legend_and_colorbars(fig, ax, data, plot_params, filtered_blast_df, 
                 cbar_def = colorbar_definitions[key]
                 cax = fig.add_axes([current_left, cbar_bottom_y, cbar_width, final_cbar_height])
                 cbar = fig.colorbar(cbar_def['mappable'], cax=cax, orientation='horizontal')
-
                 cbar.set_label(cbar_def['label'], fontsize=8)
                 cbar.ax.xaxis.set_label_position('top')
                 cbar.ax.xaxis.set_ticks_position('bottom')
@@ -4446,14 +4413,12 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     if hasattr(ax, '_identity_ring_artists'):
         for artist in ax._identity_ring_artists:
             if artist and artist.axes:
-                try:
-                    artist.remove()
-                except ValueError:
-                    pass
+                try: artist.remove()
+                except ValueError: pass
 
     gene_feature_patches_local = []
 
-    # Get Full Sequence Data ---
+    # Get Full Sequence Data
     record, full_seqlen = data["record"], data["seqlen"]
     ref_record, ref_seqlen = data["ref_record"], data["ref_seqlen"]
     original_gene_feats, original_blast_df = data["gene_feats"], data["blast_df"]
@@ -4463,7 +4428,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     original_coding_scores = data.get("coding_scores", [])
     original_non_coding_scores = data.get("non_coding_scores", [])
 
-    # Get Region Limiting Params ---
+    # Get Region Limiting Params
     limit_region = plot_params.get("limit_to_region", False)
     region_start, region_end = 0, full_seqlen
     try:
@@ -4495,7 +4460,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     id_ring_linewidth = plot_params.get("id_ring_linewidth", 1.0)
     blast_ring_radius = plot_params.get("blast_ring_radius", 1.0)
     blast_ring_thickness = plot_params.get("blast_ring_thickness", 0.15)
-
     show_roi_labels = plot_params.get("show_roi_labels", True)
     show_homology_labels = plot_params.get("show_homology_labels", True)
     homology_thresh_min = plot_params.get("homology_thresh", 0.0)
@@ -4517,7 +4481,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     original_id_thickness = plot_params.get("id_ring_thickness", 0.2)
     remove_gene_borders = plot_params.get("remove_gene_borders", False)
 
-    # Setup Plot Rotation & Auto-Stretch ---
+    # Setup Plot Rotation & Auto-Stretch
     plot_seqlen = full_seqlen
     if limit_region:
         try:
@@ -4557,7 +4521,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     if cached_y_center_pan == -1.0: cached_y_center_pan = -R
     id_ring_color_only = plot_params.get("id_ring_color_only", False)
 
-    # Data prep for Identity Ring ---
+    # Data prep for Identity Ring
     if include_coding and show_noncoding:
         id_label = "Genome ID"
         raw_scores = sorted(original_coding_scores + original_non_coding_scores, key=lambda x: x[0])
@@ -4571,7 +4535,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         id_label = "No Identity Data"
         raw_scores = []
 
-        # [UPDATED] Apply Region Limit to Identity Scores for Legend/Autofit
+        # Apply Region Limit to Identity Scores for Legend/Autofit
     if limit_region:
         scores_to_plot = [(p, s) for p, s in raw_scores if region_start <= p < region_end]
     else:
@@ -4590,7 +4554,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             # Set ID radius to midpoint of available space
             new_id_radius_frac = (skew_r_frac + (blast_r_frac - blast_t_frac)) / 2.0
             id_ring_radius = new_id_radius_frac
-
             r_baseline = R * id_ring_radius
 
             # Calculate available space outwards
@@ -4598,7 +4561,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             one_pixel_gap = abs(inv.transform((0, 1))[1] - inv.transform((0, 0))[1])
             available_space = blast_inner_edge_r - r_baseline
             effective_space = max(0, available_space - one_pixel_gap)
-
             calculated_id_thickness = max(0.01, effective_space / R)
         except Exception:
             id_ring_radius = plot_params.get("id_ring_radius", 0.6)
@@ -4607,7 +4569,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         id_ring_radius = plot_params.get("id_ring_radius", 0.6)
         calculated_id_thickness = original_id_thickness
 
-    # --- Auto-thickness Calculation ---
+    # Auto-thickness Calculation
     if plot_params.get("auto_thickness_rings", False) or is_initial_load:
         gc_thickness, skew_thickness = 1.05, 0.505
         gc_baseline_r = R * gc_inner
@@ -4618,7 +4580,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
                 original_skew_arr) > 0:
             gc_full = original_gc_arr
             skew_full = original_skew_arr
-
             gc_median = np.median(gc_full)
             space_gc_to_skew = skew_baseline_r - gc_baseline_r
             space_skew_to_id = id_ring_baseline_r - skew_baseline_r
@@ -4630,7 +4591,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             skew_clipped = np.clip(skew_full, -1.0, 1.0)
             max_skew_outward = np.max(skew_clipped)
 
-            # === STEP 1: Initial GC Thickness ===
+            # Step 1: Initial GC Thickness
             if plot_params.get("gc_ring_color_only", False):
                 gc_thickness = plot_params.get("gc_thick", 0.15)
             else:
@@ -4640,7 +4601,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
                 else:
                     gc_thickness = 0.5 * space_gc_to_skew / R
 
-            # === STEP 2: Skew Thickness Constraint (Avoid GC Baseline) ===
+            # Step 2: Skew Thickness Constraint (Avoid GC Baseline)
             negative_skew_mask = skew_clipped < -1e-9
             if np.any(negative_skew_mask):
                 if plot_params.get("gc_ring_color_only", False):
@@ -4669,7 +4630,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             else:
                 skew_thickness_from_collision = float('inf')
 
-            # === STEP 3: Identity Ring Constraint (Outer Limit) ===
+            # STEP 3: Identity Ring Constraint (Outer Limit) ===
             if max_skew_outward > 1e-9:
                 skew_thickness_from_identity = (space_skew_to_id - gap) / (R * max_skew_outward)
             else:
@@ -4679,7 +4640,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             skew_thickness = min(skew_thickness_from_collision, skew_thickness_from_identity)
             skew_thickness = max(0.01, skew_thickness)
 
-            # === STEP 4: GC Re-expansion (Fill the Gap) ===
+            # === Step 4: GC Re-expansion (Fill the Gap)
             if not plot_params.get("gc_ring_color_only", False):
                 positive_gc_mask = gc_deviation > 1e-9
 
@@ -4768,7 +4729,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         gc_cmap = gc_cmap.reversed() if gc_colormap_name.endswith(" (Reversed)") else gc_cmap
         gc_norm = mcolors.Normalize(vmin=original_gc_arr.min(), vmax=original_gc_arr.max())
 
-    # --- Draw Gene Features (Outer Ring) ---
+    # Draw Gene Features (Outer Ring)
     allow_code_fallback = data.get("allow_code_fallback", False)
     features_to_plot_colored, features_to_label = [], []
     feature_plot_map = []
@@ -4780,12 +4741,9 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             identity = getattr(f, 'best_identity', 0)
             is_homologous = homology_thresh_min <= identity <= homology_thresh_max
 
-            if is_roi:
-                feature_color = '#e53935'
-            elif is_homologous:
-                feature_color = '#43a047'
-            else:
-                feature_color = '#cccccc'
+            if is_roi: feature_color = '#e53935'
+            elif is_homologous: feature_color = '#43a047'
+            else: feature_color = '#cccccc'
 
             gf = GraphicFeature(start=f.start, end=f.end, strand=f.strand, color=feature_color, label=None)
             gf._feature_ref = f
@@ -4908,10 +4866,8 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         for p in _dfv_patches:
             fc = None
             if hasattr(p, "get_facecolor"):
-                try:
-                    fc = p.get_facecolor()
-                except Exception:
-                    fc = None
+                try: fc = p.get_facecolor()
+                except Exception: fc = None
             if not fc or (isinstance(fc, tuple) and len(fc) >= 4 and fc[3] == 0): continue
 
             # Don't remove baseline circle border
@@ -4922,15 +4878,11 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
                 except Exception:
                     pass
             if hasattr(p, "set_edgecolor"):
-                try:
-                    p.set_edgecolor("none")
-                except Exception:
-                    pass
+                try: p.set_edgecolor("none")
+                except Exception: pass
             if hasattr(p, "set_linewidth"):
-                try:
-                    p.set_linewidth(0)
-                except Exception:
-                    pass
+                try: p.set_linewidth(0)
+                except Exception: pass
 
     # Draw Limited Region Baseline
     if limit_region:
@@ -4950,7 +4902,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
                                         fill=False, edgecolor='black', linestyle='-', lw=1, zorder=0.1)
             ax.add_patch(baseline_arc)
 
-    # --- Draw Inner Rings ---
+    # Draw Inner Rings
     identity_ring_artists_local = []
 
     if plot_params.get("id_ring_precise_mode", False):
@@ -4993,8 +4945,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         region_start=region_start, region_end=region_end
     )
 
-    # --- Draw Custom Markers & Calculate Max Gene Radius ---
-    # Moved here to calculate max radius BEFORE zoom
+    # Draw Custom Markers & Calculate Max Gene Radius
     if 'custom_labels' in data and data['custom_labels']:
         _draw_custom_label_markers(ax, data['custom_labels'], plot_seqlen, graphic, R,
                                    limit_region=limit_region, region_start=region_start, region_end=region_end)
@@ -5009,7 +4960,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
 
     max_gene_radius_frac = max_gene_radius_found / R if R > 0 else 1.0
 
-    # --- Zoom & Pan Logic ---
+    # Zoom & Pan Logic
     final_zoom = zoom_factor
     x_center_pan, y_center_pan = 0, -R
     auto_zoom_scalar = 1.0
@@ -5036,11 +4987,9 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
 
                 min_r_data = R * lowest_r_frac
                 # Calculate required height from innermost ring to outermost gene
-                # max_gene_radius_found is pre-calculated above
                 radial_height = max(max_gene_radius_found - min_r_data, 0.1 * R)
 
                 # Calculate max zoom that fits this height in the viewport
-                # Viewport height approx 3.2 * R (from -1.6 to +1.6)
                 # We add 25% buffer for labels/margins
                 required_view_height = radial_height * 1.25
                 max_radial_zoom = (3.2 * R) / required_view_height
@@ -5069,7 +5018,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             calculated_this_run_x_pan = target_R * np.cos(mid_angle_rad)
             calculated_this_run_y_pan = target_R * np.sin(mid_angle_rad) - R
 
-            # FIX: Apply values to current view
+            # Apply values to current view
             x_center_pan = calculated_this_run_x_pan
             y_center_pan = calculated_this_run_y_pan
         else:
@@ -5086,7 +5035,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         ax.set_xlim(cached_xlim)
         ax.set_ylim(cached_ylim)
 
-    # --- Label Placement ---
+    # Label Placement
     label_args = plot_params.copy()
     label_args.update({
         'features_to_label': features_to_label,
@@ -5116,7 +5065,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
 
     limits_before_pass2 = (ax.get_xlim(), ax.get_ylim())
 
-    # --- Refine View for Limited Regions with Labels ---
+    # Refine View for Limited Regions with Labels
     if limit_region and text_objects:
         try:
             fig.canvas.draw()
@@ -5160,7 +5109,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
                             view_x1 = arc_midpoint_x + half_width
                             content_y0 = min(label_y0, plot_y0)
                             content_y1 = max(label_y1, plot_y1)
-
                             pad_x = (view_x1 - view_x0) * 0.08
                             pad_y = (content_y1 - content_y0) * 0.05
                             final_x0 = view_x0 - pad_x
@@ -5172,7 +5120,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
                             content_x1 = max(plot_x1, label_x1)
                             content_y0 = min(plot_y0, label_y0)
                             content_y1 = max(plot_y1, label_y1)
-
                             pad_x = (content_x1 - content_x0) * 0.08
                             pad_y = (content_y1 - content_y0) * 0.05
                             final_x0 = content_x0 - pad_x
@@ -5205,7 +5152,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
                  f"dDDH: {dDDH:.2f}%  |  ANIb: {anib_val:.2f}% (Cov: {anib_cov:.1f}%)")
 
     if wga_id_for_title > 0.0: title_str += f"  |  {wga_label}: {wga_id_for_title:.2f}%"
-
     ax.set_title(title_str, weight="bold", size=12, y=1.02)
 
     all_ids_for_colorbar = []
@@ -5235,7 +5181,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         limit_region=limit_region, region_start=region_start, region_end=region_end
     )
 
-    # Draw Start/End Line (if enabled) ---
+    # Draw Start/End Line (if enabled)
     if show_start_end_line:
         if not limit_region or (region_start <= 0 < region_end):
             angle_rad = np.deg2rad(90.0 + 360.0 * (plot_top_position / plot_seqlen))
@@ -5245,7 +5191,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             y_end = (end_radius * np.sin(angle_rad)) - R
             ax.plot([x_start, x_end], [y_start, y_end], color='black', alpha=0.5, linewidth=0.75, zorder=2)
 
-    # Draw Coordinate Numbers (if enabled) ---
+    # Draw Coordinate Numbers (if enabled)
     if plot_params.get("show_coords", False):
         # Calculate number of gene levels based on how far out they extend
         max_gene_radius = R
@@ -5257,7 +5203,7 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
         gene_levels = max(1, gene_levels)
         text_radius = R * (1.08 + 0.08 * (gene_levels - 1))
 
-        # --- Logic Selection ---
+        # Logic Selection
         format_coord_final = None
         coord_positions = []
 
@@ -5265,16 +5211,11 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             region_fraction = (region_end - region_start) / full_seqlen
             arc_degrees = 360.0 * region_fraction
 
-            if arc_degrees <= 2:
-                num_coords_to_show = 2
-            elif arc_degrees < 10:
-                num_coords_to_show = 3
-            elif arc_degrees < 20:
-                num_coords_to_show = 5
-            elif plot_seqlen != full_seqlen:
-                num_coords_to_show = 20
-            else:
-                num_coords_to_show = max(10, int(50 * region_fraction))
+            if arc_degrees <= 2: num_coords_to_show = 2
+            elif arc_degrees < 10: num_coords_to_show = 3
+            elif arc_degrees < 20: num_coords_to_show = 5
+            elif plot_seqlen != full_seqlen: num_coords_to_show = 20
+            else: num_coords_to_show = max(10, int(50 * region_fraction))
 
             coord_positions = np.linspace(region_start, region_end, num_coords_to_show)
 
@@ -5301,28 +5242,20 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             for strategy in ['1k', '500', '100', '50']:
                 labels = []
                 for x in coord_positions:
-                    if strategy == '1k':
-                        labels.append(f"{int(round(x / 1000))}k")
-                    elif strategy == '500':
-                        labels.append(f"{int(round(x / 500) * 500)}")
-                    elif strategy == '100':
-                        labels.append(f"{int(round(x / 100) * 100)}")
-                    elif strategy == '50':
-                        labels.append(f"{int(round(x / 50) * 50)}")
+                    if strategy == '1k': labels.append(f"{int(round(x / 1000))}k")
+                    elif strategy == '500': labels.append(f"{int(round(x / 500) * 500)}")
+                    elif strategy == '100': labels.append(f"{int(round(x / 100) * 100)}")
+                    elif strategy == '50': labels.append(f"{int(round(x / 50) * 50)}")
                 if len(labels) == len(set(labels)):
                     chosen_strategy = strategy
                     break
 
             def format_full(bp):
                 val = int(round(bp))
-                if chosen_strategy == '1k':
-                    return f"{val // 1000}k"
-                elif chosen_strategy == '500':
-                    return f"{int(round(val / 500) * 500)}"
-                elif chosen_strategy == '100':
-                    return f"{int(round(val / 100) * 100)}"
-                elif chosen_strategy == '50':
-                    return f"{int(round(val / 50) * 50)}"
+                if chosen_strategy == '1k': return f"{val // 1000}k"
+                elif chosen_strategy == '500': return f"{int(round(val / 500) * 500)}"
+                elif chosen_strategy == '100': return f"{int(round(val / 100) * 100)}"
+                elif chosen_strategy == '50': return f"{int(round(val / 50) * 50)}"
                 return f"{int(round(val / 10) * 10)}"
 
             format_coord_final = format_full
@@ -5335,7 +5268,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
             x = text_radius * np.cos(angle_rad)
             y = text_radius * np.sin(angle_rad) - R
             label = format_coord_final(bp_pos)
-
             ha, va = 'center', 'center'
             if 0 < angle_deg < 180: va = 'bottom'
             if 180 < angle_deg < 360: va = 'top'
@@ -5371,7 +5303,7 @@ def compute_top_position_for_roi(roi_features, seqlen, base_top=0.0, desired_ang
     """
     Computes the top position for plot rotation, with special handling for limited regions.
     """
-    # --- Determine the base position to center on ---
+    # Determine the base position to center on
     if limit_region and region_end is not None:
         # 1. Use the region midpoint as the feature to center
         target_position_bp = (region_start + region_end) / 2.0
@@ -5386,9 +5318,9 @@ def compute_top_position_for_roi(roi_features, seqlen, base_top=0.0, desired_ang
         # 3. No features, just use the base
         target_position_bp = base_top
 
-    # --- Calculate the base rotation ---
+    # Calculate the base rotation
     base_top_calculated = target_position_bp - (seqlen * (90.0 - desired_angle_deg) / 360.0)
-    # --- Add manual rotation and return ---
+    # Add manual rotation and return
     final_top_position = (base_top_calculated + (manual_deg / 360.0) * seqlen) % seqlen
     return final_top_position
 
@@ -5410,13 +5342,13 @@ def draw_identity_ring(ax, graphic, score_data, seqlen, top_position, cmap, auto
     r_inner = R * inner_radius
     data_min, data_max = all_scores.min(), all_scores.max()
 
-    # --- Color Normalization ---
+    # Color Normalization
     if auto_scale_color and data_max > data_min:
         norm = mcolors.Normalize(vmin=data_min, vmax=data_max)
     else:
         norm = mcolors.Normalize(vmin=0, vmax=100)
 
-    # --- Draw Baseline FIRST (in both Color-Only and Bar modes) ---
+    # Draw Baseline FIRST (in both Color-Only and Bar modes)
     # Baseline alpha controls visibility (controlled by baseline_alpha parameter)
     if baseline_alpha > 0.0:  # Only draw if not completely transparent
         r_baseline = r_inner
@@ -5438,7 +5370,7 @@ def draw_identity_ring(ax, graphic, score_data, seqlen, top_position, cmap, auto
             ax.add_patch(baseline_circle)
 
     if color_only_mode:
-        # --- Color-Only Mode ---
+        # Color-Only Mode
         r_start = r_inner
         r_end = r_inner + (R * thickness)
         arcs_to_draw = []
@@ -5470,7 +5402,7 @@ def draw_identity_ring(ax, graphic, score_data, seqlen, top_position, cmap, auto
                 polygon = mpatches.Polygon(verts, closed=True, facecolor=color, edgecolor=color, zorder=0.4)
                 ax.add_patch(polygon)
     else:
-        # --- Bar Mode (Baseline = 0%) ---
+        # Bar Mode (Baseline = 0%)
         r_baseline = r_inner
 
         positions, scores = np.array([p for p, s in score_data]), np.array([s for p, s in score_data])
@@ -5608,7 +5540,7 @@ def draw_gc_and_skew_plot(ax, graphic, gc_arr, skew_arr, seqlen, inner_radius=0.
                                            zorder=0.5)
                 ax.add_patch(polygon)
 
-    # --- Draw GC baseline as Arc if region is limited ---
+    # Draw GC baseline as Arc if region is limited
     if limit_region:
         if region_end is None: region_end = seqlen
         t1_deg = 90.0 - 360.0 * ((region_end - float(top_position)) / seqlen)
@@ -5648,7 +5580,7 @@ def draw_gc_and_skew_plot(ax, graphic, gc_arr, skew_arr, seqlen, inner_radius=0.
         segment_y = y_coords[start:end_slice]
         ax.plot(segment_x, segment_y, lw=1.2, color=color, alpha=0.9, zorder=1)
 
-    # --- Draw Skew baseline ---
+    # Draw Skew baseline
     if limit_region:
         if region_end is None: region_end = seqlen
         t1_deg = 90.0 - 360.0 * ((region_end - float(top_position)) / seqlen)
@@ -5809,10 +5741,8 @@ def draw_blast_hits_as_ring(ax, blast_df, seqlen, graphic, homology_min, homolog
         ax.add_patch(p)
 
     # 7. Optimized Separators (LineCollection)
-    # Replaces the slow loop of ax.plot() calls
     if show_blast_separators and len(start_pos) > 1:
         # Merge intervals to find visual junctions
-        # (This part stays standard python as it's algorithmic, but it's fast enough)
         intervals = sorted(zip(start_pos, end_pos))
         merged_intervals = []
         if intervals:
@@ -5841,7 +5771,6 @@ def draw_blast_hits_as_ring(ax, blast_df, seqlen, graphic, homology_min, homolog
 
             r_inner = R * (radius - thickness)
             r_outer = R * radius
-
             cos_a = np.cos(j_angles_rad)
             sin_a = np.sin(j_angles_rad)
 
@@ -5882,7 +5811,6 @@ def draw_precise_identity_ring(ax, graphic, data, plot_params, nc_cmap, calculat
 
     # Use intergenic data if coding is excluded
     suffix = "intergenic_lcb_data" if (not include_coding and show_noncoding) else "lcb_data"
-
     mauve_lcbs = data.get("mauve_data", {}).get(suffix, [])
     sibeliaz_lcbs = data.get("sibeliaz_data", {}).get(suffix, [])
 
@@ -5941,7 +5869,7 @@ def draw_precise_identity_ring(ax, graphic, data, plot_params, nc_cmap, calculat
 
     final_segments = []
 
-    # 4. Sweep-Line Algorithm (FIXED)
+    # 4. Sweep-Line Algorithm
     if not processed_segments:
         # Case: No data at all -> Entire region is a gap
         final_segments.append({
@@ -5955,19 +5883,15 @@ def draw_precise_identity_ring(ax, graphic, data, plot_params, nc_cmap, calculat
             events.append((seg['end'] + 1, -1, i))  # Exclusive end for sweep
 
         events.sort()  # Sort by position, then type
-
         active_indices = set()
-
         prev_pos = g_start
 
         for pos, type, idx in events:
             # Ensure we don't go backwards or process before start
             if pos < prev_pos:
                 # Just update active set if event happens before our current window
-                if type == 1:
-                    active_indices.add(idx)
-                else:
-                    active_indices.discard(idx)
+                if type == 1: active_indices.add(idx)
+                else: active_indices.discard(idx)
                 continue
 
             if pos > prev_pos:
@@ -6134,7 +6058,7 @@ def _create_label_anchors(ax, features_to_label, seqlen, graphic, limit_region=F
             "genomic_pos": center_midpoint
         }
 
-        # --- Add custom style properties if this is a custom label ---
+        # Add custom style properties if this is a custom label
         if getattr(f, 'is_custom_label', False):
             anchor_data["font_family"] = getattr(f, 'font_family', 'sans-serif')
             anchor_data["is_bold"] = getattr(f, 'is_bold', False)
@@ -6159,7 +6083,6 @@ def _draw_label_connector_and_text(ax, anchor, R, **kwargs):
     show_connector_dots = kwargs.get('show_connector_dots', False)
     color_lines_by_homology = kwargs.get('color_lines_by_homology', False)
     color_dots_by_homology = kwargs.get('color_dots_by_homology', False)
-
     limit_region = kwargs.get('limit_region', False)
 
     p1 = (anchor["x"], anchor["y"])
@@ -6172,7 +6095,7 @@ def _draw_label_connector_and_text(ax, anchor, R, **kwargs):
         p3_x = p4[0] + (R * label_line_horizontal_len)
     p3 = (p3_x, p4[1])
 
-    # === GEOMETRY CALCULATION FOR P2 (ELBOW) ===
+    # Geometry Calculation for P2 (Elbow)
     # Use Radial Projection with Clamping for ALL modes (Full and Limited).
     # Radial projection ensures we respect the calculated 'label_line_radial_len'
     # to clear gene layers. Clamping prevents the S-shape overshoot.
@@ -6191,7 +6114,6 @@ def _draw_label_connector_and_text(ax, anchor, R, **kwargs):
         safe_x = min(safe_x, p1[0])  # Don't go inwards of P1
 
     p2 = (safe_x, raw_p2_y)
-    # ===========================================
 
     # Check if this is a custom label
     is_custom_label = getattr(anchor['feature'], 'is_custom_label', False)
@@ -6285,7 +6207,7 @@ def _draw_label_connector_and_text(ax, anchor, R, **kwargs):
         if color_lines_by_homology and is_homologous: box_edge_color = final_line_color
         text_kwargs['bbox'] = dict(boxstyle="round,pad=0.25", fc="white", alpha=0.8, lw=bbox_lw, ec=box_edge_color)
 
-    # --- Create and return the text object ---
+    # Create and return the text object
     text_obj = ax.text(p4[0], p4[1], anchor["label"], clip_on=False, **text_kwargs)
     return text_obj
 
@@ -6313,10 +6235,9 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
     autofit_label_fontsize = kwargs.get('autofit_label_fontsize', False)
     label_spread = kwargs.get('label_spread', 1.0)
 
-    # --- Apply multiplier for limited regions ---
+    # Apply multiplier for limited regions
     label_distance_factor = kwargs.get("label_distance_factor", 0.25)
-    if limit_region:
-        label_distance_factor *= 3.0  # Apply 3x multiplier for limited regions
+    if limit_region: label_distance_factor *= 3.0  # Apply 3x multiplier for limited regions
     cached_zoom = kwargs.get('cached_auto_zoom_scalar', None)
     recalculate = kwargs.get('recalculate_auto_view', True)
 
@@ -6344,12 +6265,9 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
 
     # Calculate font size with spacing awareness
     # Force canvas draw if we recalculated the view to ensure ax_bbox is accurate
-    # FIX: Ensure we draw if limit_region is on, as we critically depend on bounding boxes
     if recalculate or limit_region:
-        try:
-            ax.figure.canvas.draw()
-        except Exception:
-            pass  # Ignore errors during draw
+        try: ax.figure.canvas.draw()
+        except Exception: pass  # Ignore errors during draw
 
     renderer = ax.figure.canvas.get_renderer()
     ax_bbox = ax.get_window_extent()
@@ -6365,10 +6283,8 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
 
         # Apply zoom scaling
         if combined_zoom_scalar > 1.0:
-            if combined_zoom_scalar < 2.0:
-                calculated_fontsize /= np.sqrt(combined_zoom_scalar)
-            else:
-                calculated_fontsize /= combined_zoom_scalar
+            if combined_zoom_scalar < 2.0: calculated_fontsize /= np.sqrt(combined_zoom_scalar)
+            else: calculated_fontsize /= combined_zoom_scalar
 
         # When auto-fitting, use a high cap (16pt), NOT the manual slider value.
         final_fontsize = np.clip(calculated_fontsize, 3.0, 16.0)
@@ -6377,21 +6293,17 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
         final_fontsize = manual_fontsize
         # But, scale it down if zoomed in
         if combined_zoom_scalar > 1.0:
-            if combined_zoom_scalar < 2.0:
-                final_fontsize = max(manual_fontsize / np.sqrt(combined_zoom_scalar), 6.0)
-            else:
-                final_fontsize = max(manual_fontsize / combined_zoom_scalar, 4.0)
+            if combined_zoom_scalar < 2.0: final_fontsize = max(manual_fontsize / np.sqrt(combined_zoom_scalar), 6.0)
+            else: final_fontsize = max(manual_fontsize / combined_zoom_scalar, 4.0)
 
-    max_iterations = 4
-    iteration = 0
+    max_iterations, iteration = 4, 0
     overlap_found = True
 
     while overlap_found and iteration < max_iterations:
         iteration += 1
-
         new_kwargs['label_fontsize'] = final_fontsize
 
-        # Calculate spacing parameters (MUST be inside loop, depends on final_fontsize)
+        # Calculate spacing parameters
         dummy_text = ax.text(0, 0, "Xg", fontsize=final_fontsize, clip_on=False)
         bbox = dummy_text.get_window_extent(renderer=renderer)
         dummy_text.remove()
@@ -6449,7 +6361,6 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
                 # Geometric Fallback
                 plot_left_edge = max(xlim_min, -R)
                 plot_right_edge = min(xlim_max, R)
-            # --------------------------------------
         else:
             plot_left_edge = xlim_min
             plot_right_edge = xlim_max
@@ -6469,8 +6380,7 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
             # Calculate label bounds based on actual feature positions (Per Side)
             if limit_region:
                 anchor_y_values = [a['y'] for a in anchor_list_side]
-                if not anchor_y_values:
-                    continue
+                if not anchor_y_values: continue
 
                 min_feature_y = min(anchor_y_values)
                 max_feature_y = max(anchor_y_values)
@@ -6523,15 +6433,11 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
             sorted_anchors_by_feature = sorted(anchor_list_side, key=lambda a: a['y'], reverse=True)
             n = len(sorted_anchors_by_feature)
 
-            if side == "right":
-                text_x_pos = plot_right_edge + horizontal_offset
-            else:
-                text_x_pos = plot_left_edge - horizontal_offset
+            if side == "right": text_x_pos = plot_right_edge + horizontal_offset
+            else: text_x_pos = plot_left_edge - horizontal_offset
 
-            if n > 1:
-                label_y_positions = np.linspace(final_top_bound, final_bottom_bound, n)
-            else:
-                label_y_positions = [(final_top_bound + final_bottom_bound) / 2.0]
+            if n > 1: label_y_positions = np.linspace(final_top_bound, final_bottom_bound, n)
+            else: label_y_positions = [(final_top_bound + final_bottom_bound) / 2.0]
 
             for i, anchor in enumerate(sorted_anchors_by_feature):
                 anchor['label_y'] = label_y_positions[i]
@@ -6566,8 +6472,7 @@ def place_labels_smartly(ax, features_to_label, seqlen, graphic, **kwargs):
     for anchor in anchors:
         if 'label_y' in anchor:
             text_obj = _draw_label_connector_and_text(ax, anchor, R, **new_kwargs)
-            if text_obj:
-                all_text_objects.append(text_obj)
+            if text_obj: all_text_objects.append(text_obj)
     return final_fontsize, all_text_objects
 
 
@@ -6700,7 +6605,6 @@ def _draw_custom_label_markers(ax, custom_labels_list, seqlen, graphic, R, limit
                 # Calculate angles for start and end positions
                 theta_start = 90.0 - 360.0 * ((start_pos - float(top_position)) / seqlen)
                 theta_end = 90.0 - 360.0 * ((end_pos - float(top_position)) / seqlen)
-
                 print(f"  Range label - initial theta_start: {theta_start:.2f}°, theta_end: {theta_end:.2f}°")
 
                 # Calculate the angular span
@@ -6711,10 +6615,8 @@ def _draw_custom_label_markers(ax, custom_labels_list, seqlen, graphic, R, limit
                 if angular_span > 180:
                     print(f"  WARNING: Angular span > 180°, correcting...")
                     # Swap to use the shorter arc
-                    if theta_start > theta_end:
-                        theta_end += 360
-                    else:
-                        theta_start += 360
+                    if theta_start > theta_end: theta_end += 360
+                    else: theta_start += 360
                     print(f"  Corrected theta_start: {theta_start:.2f}°, theta_end: {theta_end:.2f}°")
 
                 theta1 = min(theta_start, theta_end)
@@ -6764,9 +6666,6 @@ def _format_blast_df_for_excel(blast_df):
 
     df = blast_df.copy()
 
-    # --- OPTIMIZATION 1: Vectorized Coordinate Normalization ---
-    # Replaces the slow df.apply(lambda row: min(...), axis=1)
-    # np.minimum/maximum compares arrays element-wise instantly
     if 'sstart' in df.columns and 'send' in df.columns:
         sstart = df['sstart'].values
         send = df['send'].values
@@ -6788,8 +6687,6 @@ def _format_blast_df_for_excel(blast_df):
         "ref_differences_only": "Reference Differences Only",
     })
 
-    # --- OPTIMIZATION 2: Faster String Replacement ---
-    # Adding regex=False makes the replacement faster for simple literals
     if 'Aligned Query Sequence' in df.columns:
         df['Original Query Sequence'] = df['Aligned Query Sequence'].astype(str).str.replace('-', '', regex=False)
     if 'Aligned Reference Sequence' in df.columns:
@@ -6819,8 +6716,6 @@ def _adjust_excel_column_widths(filepath):
                         sequence columns to headers only
     - Identity columns: Format to show up to 12 decimal places
     """
-    from openpyxl import load_workbook
-    from openpyxl.styles import numbers
 
     # Sequence column keywords to identify columns that should fit headers only
     sequence_keywords = [
@@ -7078,8 +6973,7 @@ class Tooltip:
 
     def show_tip(self, text):
         """Display text in tooltip window (cross-platform)."""
-        if self.tip_window or not text:
-            return
+        if self.tip_window or not text: return
 
         x, y = self.widget.winfo_pointerx() + 15, self.widget.winfo_pointery() + 15
         self.tip_window = tw = tk.Toplevel(self.widget)
@@ -7154,7 +7048,6 @@ class PlottingWindow(tk.Toplevel):
         self.last_rotation = 0.0
         self.resolution_options = RESOLUTION_OPTIONS
         self.data_params = self.master_app._get_data_params()
-
         self.plot_tooltips = {}
         if hasattr(master, 'ui_tooltips'): self.plot_tooltips.update(master.ui_tooltips)
 
@@ -7238,7 +7131,7 @@ class PlottingWindow(tk.Toplevel):
         initial_params = data.get("initial_plot_params", {})
         self._apply_initial_params(initial_params)
 
-        # --- Widget Layout and Scrollbar Setup ---
+        # Widget Layout and Scrollbar Setup
         main_frame = tk.Frame(self)
         main_frame.pack(fill="both", expand=True)
         m_paned_window = ttk.PanedWindow(main_frame, orient="horizontal")
@@ -7481,7 +7374,7 @@ class PlottingWindow(tk.Toplevel):
                     )
                     break  # Found the topmost BLAST hit, stop iterating
 
-        # Check Identity Ring (Precise or Sliding Window) ---
+        # Check Identity Ring (Precise or Sliding Window)
         if tooltip_text is None:
 
             if self.plot_params["id_ring_precise_mode"].get():
@@ -7490,24 +7383,18 @@ class PlottingWindow(tk.Toplevel):
 
                     is_inside, info_dict = artist.contains(event)
                     if is_inside:
-                        # NEW: Handle PatchCollection
                         if isinstance(artist, matplotlib.collections.PatchCollection):
-                            # info_dict['ind'] contains indices of all wedges under mouse
                             if 'ind' in info_dict and len(info_dict['ind']) > 0:
                                 # Get the top-most (last) index
                                 idx = info_dict['ind'][-1]
-                                if hasattr(artist, 'lcb_info_list'):
-                                    info = artist.lcb_info_list[idx]
-                                else:
-                                    continue
+                                if hasattr(artist, 'lcb_info_list'): info = artist.lcb_info_list[idx]
+                                else: continue
                         else:
                             # Fallback for individual patches (old method)
-                            if hasattr(artist, 'lcb_info'):
-                                info = artist.lcb_info
-                            else:
-                                continue
+                            if hasattr(artist, 'lcb_info'): info = artist.lcb_info
+                            else: continue
 
-                        # Build tooltip (Existing logic)
+                        # Build tooltip
                         tooltip_parts = [
                             f"Algorithm: {info['algorithm']}",
                             f"Qry Coords: {info['start']} - {info['end']}"
@@ -7549,8 +7436,7 @@ class PlottingWindow(tk.Toplevel):
                             closest_score_val = None
                             closest_pos_val = None
                             for pos, score in scores_available:
-                                if score == 0:
-                                    continue
+                                if score == 0: continue
 
                                 dist = min(abs(bp_pos - pos), seqlen - abs(bp_pos - pos))
                                 if dist < min_dist:
@@ -7939,16 +7825,11 @@ class PlottingWindow(tk.Toplevel):
             self.plot_params["id_ring_precise_mode"].set(False)
 
         # 2. Map Selection to Data Keys
-        if selected_algo == "Legacy (Global k-mer %)":
-            data_key = "legacy_data"
-        elif selected_algo == "Legacy (1:1 Base %)":
-            data_key = "legacy_base_data"
-        elif selected_algo == "Mauve":
-            data_key = "mauve_data"
-        elif selected_algo == "SibeliaZ":
-            data_key = "sibeliaz_data"
-        else:
-            data_key = "combined_data"  # "Mauve + SibeliaZ Fallback"
+        if selected_algo == "Legacy (Global k-mer %)": data_key = "legacy_data"
+        elif selected_algo == "Legacy (1:1 Base %)": data_key = "legacy_base_data"
+        elif selected_algo == "Mauve": data_key = "mauve_data"
+        elif selected_algo == "SibeliaZ": data_key = "sibeliaz_data"
+        else: data_key = "combined_data"  # "Mauve + SibeliaZ Fallback"
 
         # 3. Check if Data Exists and Auto-Fallback
         has_mauve = bool(self.data.get("mauve_data", {}).get("coding_scores"))
@@ -8047,7 +7928,6 @@ class PlottingWindow(tk.Toplevel):
             return
 
         # 3. Call the UNIFIED optimized function
-        # This is the same function used during first load
         self.master_app.status_label.config(text="Instantly recalculating...", fg="blue")
 
         coding, non_coding, avg = _sample_identity_profile(
@@ -8191,10 +8071,8 @@ class PlottingWindow(tk.Toplevel):
 
     def _reprocess_data_and_update(self):
         for child in self.scrollable_frame.winfo_children():
-            try:
-                child.configure(state='disabled')
-            except tk.TclError:
-                pass
+            try: child.configure(state='disabled')
+            except tk.TclError: pass
 
         self.master_app.status_label.config(text="Re-processing data for interactive plot...", fg="black")
         self.data_params["identity_algorithm"] = self.plot_params["identity_algorithm"].get()
@@ -8362,7 +8240,8 @@ class PlottingWindow(tk.Toplevel):
         Apply initial parameters from main window to plot_params.
         Respects auto-options:
         - If autofit_label_fontsize is True, ignore label_fontsize
-        - If use_smart_layout is True, ignore label_spread, label_distance_factor, label_line_radial_len, label_line_horizontal_len, curve_tension
+        - If use_smart_layout is True, ignore label_spread, label_distance_factor, label_line_radial_len,
+        label_line_horizontal_len, curve_tension
         - If auto_thickness_rings is True, ignore gc_thick and skew_thick
         """
         if not initial_params:
@@ -8380,12 +8259,9 @@ class PlottingWindow(tk.Toplevel):
 
         for key, value in initial_params.items():
             # Skip parameters based on auto-option settings
-            if autofit_fontsize and key in ignore_if_autofit:
-                continue
-            if use_smart_layout and key in ignore_if_smart_layout:
-                continue
-            if auto_thickness and key in ignore_if_auto_thickness:
-                continue
+            if autofit_fontsize and key in ignore_if_autofit: continue
+            if use_smart_layout and key in ignore_if_smart_layout: continue
+            if auto_thickness and key in ignore_if_auto_thickness: continue
 
             # Apply parameter if it exists in plot_params
             if key in self.plot_params:
@@ -8408,7 +8284,6 @@ class PlottingWindow(tk.Toplevel):
         frame = ttk.Frame(parent)
         frame.pack(fill="x", pady=2, padx=5)
         frame.columnconfigure(1, weight=1)
-
         top_frame = ttk.Frame(frame)
         top_frame.grid(row=0, column=0, columnspan=2, sticky="ew")
         top_frame.columnconfigure(1, weight=1)
@@ -9015,7 +8890,7 @@ class PlottingWindow(tk.Toplevel):
 
                 except (ValueError, TypeError): pass
 
-            # Use the UPDATED region values after auto-expansion (not the original params)
+            # Use the updated region values after auto-expansion (not the original params)
             current_limited = params.get("limit_to_region", False)
             current_start = self.plot_params.get("region_start").get() if current_limited else ""
             current_end = self.plot_params.get("region_end").get() if current_limited else ""
@@ -9044,10 +8919,8 @@ class PlottingWindow(tk.Toplevel):
                     inner_radius_changed
             )
 
-            if (autofit_enabled or smart_layout_enabled) and region_changed:
-                recalculate_labels = True
-            else:
-                recalculate_labels = region_changed
+            if (autofit_enabled or smart_layout_enabled) and region_changed: recalculate_labels = True
+            else: recalculate_labels = region_changed
 
             params['cached_x_center_pan'] = self.cached_x_center_pan
             params['cached_y_center_pan'] = self.cached_y_center_pan
@@ -9529,12 +9402,9 @@ class PlottingWindow(tk.Toplevel):
 
             mauve_coding_raw = self.data.get("mauve_data", {}).get("coding_lcb_data", [])
             mauve_coding_lcb_df = process_coding_lcb_df(mauve_coding_raw)
-
             mauve_intergenic_raw = self.data.get("mauve_data", {}).get("intergenic_lcb_data", [])
             mauve_intergenic_lcb_df = process_lcb_df(mauve_intergenic_raw)
-
             sibeliaz_lcb_df = process_lcb_df(self.data.get("sibeliaz_data", {}).get("lcb_data", []))
-
             sibeliaz_coding_raw = self.data.get("sibeliaz_data", {}).get("coding_lcb_data", [])
             sibeliaz_coding_lcb_df = process_coding_lcb_df(sibeliaz_coding_raw)
 
@@ -11110,11 +10980,7 @@ class App(tk.Tk):
                         traceback.print_exc()
                         self._enable_buttons()
 
-                # ... [Rest of the handlers: reprocess_done, reprocess_fail, gc_recalc_done, etc.] ...
-                # (Ensure you keep the existing handlers for reprocess_done, legacy_export_ready, etc.)
-
                 elif msg_type == "reprocess_done":
-                    # ... existing logic ...
                     if self.current_plot_window and self.current_plot_window.winfo_exists():
                         new_data = data
                         if hasattr(self.current_plot_window, 'data'):
@@ -11135,13 +11001,11 @@ class App(tk.Tk):
                         self.status_label.config(text="Reprocessing done, but plot window was closed.", fg="grey")
 
                 elif msg_type == "reprocess_fail":
-                    # ... existing logic ...
                     if self.current_plot_window and self.current_plot_window.winfo_exists():
                         self.current_plot_window._enable_controls()
                     self.status_label.config(text=f"Reprocessing failed: {data}", fg="red")
 
                 elif msg_type == "gc_recalc_done":
-                    # ... existing logic ...
                     if self.current_plot_window and self.current_plot_window.winfo_exists():
                         new_gc_arr, new_skew_arr = data
                         self.current_plot_window.data["gc_arr"] = new_gc_arr
@@ -11157,7 +11021,6 @@ class App(tk.Tk):
                         self.status_label.config(text="GC recalc done, but plot window was closed.", fg="grey")
 
                 elif msg_type == "run_legacy_for_export":
-                    # ... existing logic ...
                     filepath = data
 
                     def legacy_export_thread():
@@ -11191,7 +11054,6 @@ class App(tk.Tk):
                     threading.Thread(target=legacy_export_thread, daemon=True).start()
 
                 elif msg_type == "legacy_export_ready":
-                    # ... existing logic ...
                     filepath, all_blocks, intergenic_blocks = data
                     if not self.current_plot_window or not self.current_plot_window.winfo_exists():
                         self.status_label.config(text="Legacy report finished, but plot window was closed.", fg="grey")
@@ -11208,7 +11070,6 @@ class App(tk.Tk):
                     self.current_plot_window._perform_excel_save(filepath, include_legacy=True)
 
                 elif msg_type == "legacy_kmer_recalc_done":
-                    # ... existing logic ...
                     if not self.current_plot_window or not self.current_plot_window.winfo_exists():
                         self.status_label.config(text="Legacy k-mer recalc done, but plot window closed.", fg="grey")
                         continue
@@ -11228,7 +11089,6 @@ class App(tk.Tk):
                     self.status_label.config(text="Switched to Legacy (Global k-mer %).", fg="blue")
 
                 elif msg_type == "legacy_base_recalc_done":
-                    # ... existing logic ...
                     if not self.current_plot_window or not self.current_plot_window.winfo_exists():
                         self.status_label.config(text="Legacy base recalc done, but plot window closed.", fg="grey")
                         continue
@@ -11248,7 +11108,6 @@ class App(tk.Tk):
                     self.status_label.config(text="Switched to Legacy (1:1 Base %).", fg="blue")
 
                 elif msg_type == "legacy_recalc_fail":
-                    # ... existing logic ...
                     if self.current_plot_window and self.current_plot_window.winfo_exists():
                         self.current_plot_window._enable_controls()
                     self.status_label.config(text="Legacy (k-mer) recalculation failed.", fg="red")
@@ -11314,7 +11173,6 @@ class App(tk.Tk):
         # 1. Check Required Files (always needed)
         required_keys = ["fasta", "annot", "ref"]
         for key in required_keys:
-            # Fix slashes here too just in case
             path_str = self.vars[key].get().strip().replace('\\', '/')
             if not path_str:
                 display_name = validation_rules[key][1]
