@@ -160,9 +160,30 @@ jobs:
           Copy-Item -Force "install-sibeliaz-wsl.bat" "dist\${env:APP_NAME}\install-sibeliaz-wsl.bat"
           Copy-Item -Force "install-sibeliaz-wsl.sh"  "dist\${env:APP_NAME}\install-sibeliaz-wsl.sh"
 
-      # Upload the folder directly (no extra zip/tar we create), so users extract once.
-      - name: Upload bundle folder
+      # Package for distribution:
+      # - Windows: zip
+      # - macOS/Linux: tar.gz (preserves executable bits reliably)
+      - name: Package bundle (Windows zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "dist\${env:APP_NAME}"
+          $out = "${env:APP_NAME}-${{ matrix.target.name }}.zip"
+          if (Test-Path $out) { Remove-Item $out -Force }
+          Compress-Archive -Path $bundle -DestinationPath $out -Force
+
+      - name: Package bundle (macOS/Linux tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${APP_NAME}-${{ matrix.target.name }}.tar.gz"
+          (cd dist && tar -czf "../$out" "${APP_NAME}")
+
+      - name: Upload packaged bundle
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-${{ matrix.target.name }}
-          path: dist/${{ env.APP_NAME }}
+          path: |
+            ${{ env.APP_NAME }}-${{ matrix.target.name }}.zip
+            ${{ env.APP_NAME }}-${{ matrix.target.name }}.tar.gz
