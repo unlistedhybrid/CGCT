@@ -263,8 +263,9 @@ def _load_config():
     config = {
         "WSL_DISTRO": "Ubuntu",
         "WSL_USER": "",
-        "WSL_MAUVE_ENV": "",
-        "WSL_SIBELIAZ_ENV": ""
+        "WSL_SIBELIAZ_ENV": "",
+        "USE_DOCKER_SIBELIAZ": "false",
+        "DOCKER_SIBELIAZ_IMAGE": "aaronmauve/sibeliaz-conda:latest"
     }
 
     script_dir = Path(__file__).parent
@@ -442,10 +443,13 @@ def _detect_wsl_user():
 if platform.system() == "Windows":
     # Simply load what is in the config. If empty, we will let WSL decide.
     WSL_USER = _cfg["WSL_USER"]
-    WSL_MAUVE_ENV = _cfg["WSL_MAUVE_ENV"]
     WSL_SIBELIAZ_ENV = _cfg["WSL_SIBELIAZ_ENV"]
+    USE_DOCKER_SIBELIAZ = _cfg["USE_DOCKER_SIBELIAZ"].lower() in ["true", "1", "yes"]
+    DOCKER_SIBELIAZ_IMAGE = _cfg["DOCKER_SIBELIAZ_IMAGE"] or "sibeliaz-conda:latest"
 else:
-    WSL_USER, WSL_MAUVE_ENV, WSL_SIBELIAZ_ENV = None, None, None
+    WSL_USER, WSL_SIBELIAZ_ENV = None, None
+    USE_DOCKER_SIBELIAZ = False
+    DOCKER_SIBELIAZ_IMAGE = "sibeliaz-conda:latest"
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # External Tool Wrappers (WGA & BLAST)
@@ -618,8 +622,8 @@ def _run_sibeliaz_docker(query_fasta, ref_fasta, output_dir, extra_args=None, ti
     sibeliaz_cmd_str = " ".join(shlex.quote(arg) for arg in sibeliaz_command_parts)
     print(f"  SibeliaZ command string: {sibeliaz_cmd_str}")
 
-    # Docker image and command setup - using local image like older version
-    docker_image = "sibeliaz-conda:latest"
+    # Docker image and command setup - using config variable or default
+    docker_image = DOCKER_SIBELIAZ_IMAGE
     print(f"\n[DEBUG SIBELIAZ] Using Docker image: {docker_image}")
 
     # Set Docker context for macOS
@@ -2129,7 +2133,10 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
 
             try:
                 if sys.platform.startswith("win"):
-                    _run_sibeliaz_wsl(str(safe_query_path), str(safe_ref_path), str(safe_output_dir), [])
+                    if USE_DOCKER_SIBELIAZ:
+                        _run_sibeliaz_docker(str(safe_query_path), str(safe_ref_path), str(safe_output_dir), [])
+                    else:
+                        _run_sibeliaz_wsl(str(safe_query_path), str(safe_ref_path), str(safe_output_dir), [])
                 elif sys.platform == "darwin":
                     _run_sibeliaz_docker(str(safe_query_path), str(safe_ref_path), str(safe_output_dir), [])
                 else:
