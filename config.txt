@@ -1,0 +1,45 @@
+# CGCT System Configuration File
+# =====================================================================
+# This file contains system-level configuration for the CGCT application.
+# These settings control how external tools and WSL environments are accessed.
+# Leave values empty to use application defaults.
+# Lines starting with '#' are comments and will be ignored.
+
+# =====================================================================
+# WSL (Windows Subsystem for Linux) CONFIGURATION
+# =====================================================================
+
+# WSL Linux distribution name (e.g., "Ubuntu", "Ubuntu-20.04", "Debian", "Fedora")
+# Leave empty to use the default WSL distribution installed on your system
+WSL_DISTRO=Ubuntu
+
+# WSL user account to run commands as
+# Leave empty to use the default WSL user
+WSL_USER=
+
+# =====================================================================
+# DOCKER CONFIGURATION (Windows & macOS)
+# =====================================================================
+
+# Enable Docker for SibeliaZ instead of WSL (Windows only)
+# Set to true if you have pulled or built the Docker image
+# Default: false (uses WSL on Windows)
+# If false, uses WSL for Windows; if true, uses Docker Desktop
+USE_DOCKER_SIBELIAZ=true
+
+# Docker image name for SibeliaZ
+# Options:
+#   - "aaronmauve/sibeliaz-conda:latest" (pulled from Docker Hub - recommended)
+#   - "sibeliaz-conda:latest" (built locally from provided Dockerfile)
+# Leave empty to use "sibeliaz-conda:latest"
+DOCKER_SIBELIAZ_IMAGE=aaronmauve/sibeliaz-conda:latest
+
+# =====================================================================
+# WSL TOOL ENVIRONMENT VARIABLES
+# =====================================================================
+
+# Environment variables for SibeliaZ in WSL (optional, Windows only)
+# Format: VAR1=value1:VAR2=value2 (colon-separated for multiple)
+# Leave empty to use system defaults
+# Only used if USE_DOCKER_SIBELIAZ is false
+WSL_SIBELIAZ_ENV=
