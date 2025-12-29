@@ -82,9 +82,10 @@ def run_quiet(args, **kwargs):
     if platform.system() == "Windows":
         # CREATE_NO_WINDOW prevents the console popup
         kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
-        # Also ensure no console window is created even if Python tries
+        # Hide the window startup info
         si = subprocess.STARTUPINFO()
         si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
         kwargs.setdefault("startupinfo", si)
     return subprocess.run(args, **kwargs)
 
