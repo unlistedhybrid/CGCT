@@ -23,6 +23,7 @@ jobs:
             mauve_bin: progressiveMauve.exe
             readme_src: README_WINDOWS.md
             include_dockerfile: "true"
+            include_config: "true"
 
           - name: linux-x64
             os: ubuntu-24.04
@@ -31,6 +32,7 @@ jobs:
             mauve_bin: progressiveMauve
             readme_src: README_LINUX_AMD64.md
             include_dockerfile: "false"
+            include_config: "false"
 
           - name: macos-x64
             os: macos-15-intel
@@ -39,6 +41,7 @@ jobs:
             mauve_bin: progressiveMauve
             readme_src: README_MAC_AMD64.md
             include_dockerfile: "true"
+            include_config: "true"
 
           - name: macos-arm64
             os: macos-14
@@ -47,6 +50,7 @@ jobs:
             mauve_bin: progressiveMauve
             readme_src: README_MAC_ARM64.md
             include_dockerfile: "true"
+            include_config: "true"
 
     runs-on: ${{ matrix.target.os }}
 
@@ -132,8 +136,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\tools" | Out-Null
           Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\tools\${{ matrix.target.mauve_bin }}"
 
-      # Add platform-specific README (always), and Dockerfile (non-Linux only)
-      - name: Add README (+ Dockerfile when applicable) (macOS/Linux)
+      # Add platform-specific README (always), and optional Dockerfile/config.txt (non-Linux only)
+      - name: Add README (+ extras when applicable) (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -142,13 +146,17 @@ jobs:
           if [ "${{ matrix.target.include_dockerfile }}" = "true" ]; then
             cp "Dockerfile" "dist/${APP_NAME}/Dockerfile"
           fi
+          if [ "${{ matrix.target.include_config }}" = "true" ]; then
+            cp "config.txt" "dist/${APP_NAME}/config.txt"
+          fi
 
-      - name: Add README (+ Dockerfile) + WSL installer (Windows)
+      - name: Add README (+ extras) + WSL installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Copy-Item -Force "${{ matrix.target.readme_src }}" "dist\${env:APP_NAME}\readme.md"
           Copy-Item -Force "Dockerfile" "dist\${env:APP_NAME}\Dockerfile"
+          Copy-Item -Force "config.txt" "dist\${env:APP_NAME}\config.txt"
           Copy-Item -Force "install-sibeliaz-wsl.bat" "dist\${env:APP_NAME}\install-sibeliaz-wsl.bat"
           Copy-Item -Force "install-sibeliaz-wsl.sh"  "dist\${env:APP_NAME}\install-sibeliaz-wsl.sh"
 
