@@ -21,24 +21,32 @@ jobs:
             python: "3.11"
             mauve_asset: progressiveMauve-v2.5.0-windows-x64.zip
             mauve_bin: progressiveMauve.exe
+            readme_src: README_WINDOWS.md
+            include_dockerfile: "true"
 
           - name: linux-x64
             os: ubuntu-24.04
             python: "3.11"
             mauve_asset: progressiveMauve-v2.5.0-linux-x86_64.tar.gz
             mauve_bin: progressiveMauve
+            readme_src: README_LINUX_AMD64.md
+            include_dockerfile: "false"
 
           - name: macos-x64
             os: macos-15-intel
             python: "3.11"
             mauve_asset: progressiveMauve-v2.5.0-macos-intel.tar.gz
             mauve_bin: progressiveMauve
+            readme_src: README_MAC_AMD64.md
+            include_dockerfile: "true"
 
           - name: macos-arm64
             os: macos-14
             python: "3.11"
             mauve_asset: progressiveMauve-v2.5.0-macos-arm64.tar.gz
             mauve_bin: progressiveMauve
+            readme_src: README_MAC_ARM64.md
+            include_dockerfile: "true"
 
     runs-on: ${{ matrix.target.os }}
 
@@ -76,7 +84,7 @@ jobs:
         run: |
           pyinstaller --noconfirm --windowed --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
 
-      # Download + extract progressiveMauve and place just the binary into dist/CGCT/Tools/
+      # Download + extract progressiveMauve and place just the binary into dist/CGCT/tools/
       - name: Fetch progressiveMauve (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
@@ -89,17 +97,16 @@ jobs:
           mkdir -p mauve_extract
           tar -xzf mauve.tar.gz -C mauve_extract
 
-          # Find the single binary inside the extracted tree
           mauve_path="$(find mauve_extract -type f -name "${{ matrix.target.mauve_bin }}" -print -quit)"
           if [ -z "$mauve_path" ]; then
             echo "ERROR: Could not find ${{ matrix.target.mauve_bin }} in extracted archive"
-            find mauve_extract -maxdepth 3 -type f -print
+            find mauve_extract -maxdepth 4 -type f -print
             exit 1
           fi
 
-          mkdir -p "dist/${APP_NAME}/Tools"
-          cp "$mauve_path" "dist/${APP_NAME}/Tools/${{ matrix.target.mauve_bin }}"
-          chmod +x "dist/${APP_NAME}/Tools/${{ matrix.target.mauve_bin }}"
+          mkdir -p "dist/${APP_NAME}/tools"
+          cp "$mauve_path" "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
+          chmod +x "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
 
           # Ensure main app binary is executable too (usually already, but harmless)
           chmod +x "dist/${APP_NAME}/${APP_NAME}"
@@ -122,8 +129,28 @@ jobs:
             exit 1
           }
 
-          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\Tools" | Out-Null
-          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\Tools\${{ matrix.target.mauve_bin }}"
+          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\tools" | Out-Null
+          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\tools\${{ matrix.target.mauve_bin }}"
+
+      # Add platform-specific README (always), and Dockerfile (non-Linux only)
+      - name: Add README (+ Dockerfile when applicable) (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${{ matrix.target.readme_src }}" "dist/${APP_NAME}/readme.md"
+          if [ "${{ matrix.target.include_dockerfile }}" = "true" ]; then
+            cp "Dockerfile" "dist/${APP_NAME}/Dockerfile"
+          fi
+
+      - name: Add README (+ Dockerfile) + WSL installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item -Force "${{ matrix.target.readme_src }}" "dist\${env:APP_NAME}\readme.md"
+          Copy-Item -Force "Dockerfile" "dist\${env:APP_NAME}\Dockerfile"
+          Copy-Item -Force "install-sibeliaz-wsl.bat" "dist\${env:APP_NAME}\install-sibeliaz-wsl.bat"
+          Copy-Item -Force "install-sibeliaz-wsl.sh"  "dist\${env:APP_NAME}\install-sibeliaz-wsl.sh"
 
       # Upload the folder directly (no extra zip/tar we create), so users extract once.
       - name: Upload bundle folder
