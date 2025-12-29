@@ -71,6 +71,23 @@ matplotlib.use("TkAgg")
 warnings.filterwarnings("ignore", category=Bio.BiopythonDeprecationWarning)
 warnings.filterwarnings("ignore", message=".*main thread is not in main loop.*")
 
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Subprocess Helper for Windows GUI (No Console Popups)
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+def run_quiet(args, **kwargs):
+    """
+    Runs a subprocess without flashing a console window on Windows packaged GUI apps.
+    Works fine on macOS/Linux too.
+    """
+    if platform.system() == "Windows":
+        # CREATE_NO_WINDOW prevents the console popup
+        kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
+        # Also ensure no console window is created even if Python tries
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        kwargs.setdefault("startupinfo", si)
+    return subprocess.run(args, **kwargs)
+
 GFFUTILS_COORD_OFFSET_GLOBAL = 0
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -640,7 +657,7 @@ def _run_sibeliaz_docker(query_fasta, ref_fasta, output_dir, extra_args=None, ti
         try:
             print(f"[DEBUG SIBELIAZ] Executing subprocess.run...")
             print(f"[DEBUG SIBELIAZ] Full command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout or 3600)
+            result = run_quiet(cmd, capture_output=True, text=True, timeout=timeout or 3600)
             print(f"[DEBUG SIBELIAZ] subprocess.run completed")
             print("\n=== DEBUG: RAW STDOUT ===")
             print(result.stdout)
@@ -786,7 +803,7 @@ def _run_progressive_mauve(query_fasta: Path, ref_fasta: Path, output_xmfa_path:
         print(f"[DEBUG MAUVE] Using shell=False")
 
         # On Windows, try to ensure paths are properly quoted
-        proc = subprocess.run(base_cmd_parts, check=True, capture_output=True, text=True, timeout=1000)
+        proc = run_quiet(base_cmd_parts, check=True, capture_output=True, text=True, timeout=1000)
 
         print(f"[DEBUG MAUVE] subprocess.run completed with return code: {proc.returncode}")
         if proc.stdout:
@@ -1175,7 +1192,7 @@ def _run_blastn(query_fasta: Path, ref_fasta: Path, out_tab: Path, task, word_si
 
         # Run makeblastdb using the determined safe path
         try:
-            subprocess.run(
+            run_quiet(
                 [makeblastdb_exe, "-in", str(ref_path_for_makeblastdb), "-dbtype", "nucl", "-out", str(temp_db)],
                 check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
@@ -1213,7 +1230,7 @@ def _run_blastn(query_fasta: Path, ref_fasta: Path, out_tab: Path, task, word_si
         if culling_limit not in (None, "", "0"): blast_cmd.extend(("-culling_limit", culling_limit))
 
         try:
-            subprocess.run(blast_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            run_quiet(blast_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except FileNotFoundError as e:
             print(f"[FILE_NOT_FOUND] blastn: {e} | executable=blastn | query={query_path_for_blast}")
             raise
@@ -2118,7 +2135,7 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
                     sibeliaz_exe = shutil.which("sibeliaz")
                     if not sibeliaz_exe:
                         raise FileNotFoundError("SibeliaZ executable not found in PATH.")
-                    subprocess.run([sibeliaz_exe, "-o", str(safe_output_dir), str(safe_query_path), str(safe_ref_path)],
+                    run_quiet([sibeliaz_exe, "-o", str(safe_output_dir), str(safe_query_path), str(safe_ref_path)],
                                    check=True, capture_output=True, text=True)
             except Exception as e:
                 print(f"\n!!! SIBELIAZ EXECUTION ERROR !!!\n{e}\n")
@@ -3700,7 +3717,7 @@ def _process_data(fasta, annot, ref_fasta, window, highlight_bed_path, allow_cod
                 "-dbtype", "nucl",
                 "-out", str(ref_db_path)
             ]
-            subprocess.run(cmd_db, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            run_quiet(cmd_db, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             # 3. Run BLASTn (Strict ANIb-like settings)
             blast_out_path = temp_dir / "anib.blast.tab"
@@ -3718,7 +3735,7 @@ def _process_data(fasta, annot, ref_fasta, window, highlight_bed_path, allow_cod
                 "-max_target_seqs", "5"  # We only need the top hit
             ]
 
-            subprocess.run(cmd_blast, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            run_quiet(cmd_blast, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             # 4. Parse and Calculate
             if not blast_out_path.exists() or blast_out_path.stat().st_size == 0:
