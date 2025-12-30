@@ -25,7 +25,7 @@ WSL_USER=
 # Set to true if you have pulled or built the Docker image
 # Default: false (uses WSL on Windows)
 # If false, uses WSL for Windows; if true, uses Docker Desktop
-USE_DOCKER_SIBELIAZ=true
+USE_DOCKER_SIBELIAZ=false
 
 # Docker image name for SibeliaZ
 # Options:
