@@ -1494,6 +1494,7 @@ def _create_feature_from_gffutils(feature_for_coords, feature_for_label, highlig
             best_identity = best_hit.pident
             if best_identity >= homology_threshold: is_homologous = True
             best_sstart, best_send, best_sseqid = best_hit.sstart, best_hit.send, best_hit.sseqid
+            best_qseqid = best_hit.qseqid
 
     if is_highlighted:
         color = "#e53935"
@@ -1527,6 +1528,7 @@ def _create_feature_from_gffutils(feature_for_coords, feature_for_label, highlig
         graphic_feature.best_sstart = best_sstart
         graphic_feature.best_send = best_send
         graphic_feature.best_sseqid = best_sseqid
+        graphic_feature.best_qseqid = best_qseqid
     return graphic_feature
 
 
@@ -3571,6 +3573,7 @@ def _rerun_blast_only(data, fasta_path, ref_fasta_path, annot_path, fasta_id, se
         f.best_sstart = None
         f.best_send = None
         f.best_sseqid = None
+        f.best_qseqid = None
 
         # Re-apply Manual Label Override (in case params changed)
         if manual_find and manual_replace:
@@ -5645,6 +5648,7 @@ def _batch_assign_homology(features, blast_df, homology_threshold):
             feature.best_sstart = hit_row['sstart']
             feature.best_send = hit_row['send']
             feature.best_sseqid = hit_row['sseqid']
+            feature.best_qseqid = hit_row['qseqid']
 
             # Apply Green Color if Threshold Met
             if best_id >= homology_threshold:
@@ -9254,11 +9258,12 @@ class PlottingWindow(tk.Toplevel):
                     ref_start = min(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
                     ref_stop = max(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
                     identity = f"{f.best_identity:.2f}"
-                    accession = getattr(f, 'best_sseqid', 'N/A')
-                    homology_hits.append((gene_name, gene_id, query_start, query_stop, ref_start, ref_stop, identity, accession))
+                    query_accession = getattr(f, 'best_qseqid', 'N/A')
+                    reference_accession = getattr(f, 'best_sseqid', 'N/A')
+                    homology_hits.append((gene_name, gene_id, query_start, query_stop, ref_start, ref_stop, identity, query_accession, reference_accession))
             homology_df = pd.DataFrame(sorted(homology_hits, key=lambda x: x[2]),
                                        columns=["Gene Name", "ID", "Query Start", "Query Stop", "Reference Start", "Reference Stop", "Identity (%)",
-                                                "Accession"])
+                                                "Query Accession", "Reference Accession"])
             enriched_blast_df = self.data.get("blast_df", pd.DataFrame())
             blast_all_df = _format_blast_df_for_excel(enriched_blast_df)
             blast_intergenic_df = _format_blast_df_for_excel(
@@ -10646,11 +10651,12 @@ class App(tk.Tk):
                         query_stop = int(f.end)
                         ref_start = min(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
                         ref_stop = max(getattr(f, 'best_sstart', 0), getattr(f, 'best_send', 0))
-                        accession = getattr(f, 'best_sseqid', 'N/A')
-                        homology_hits.append((gene_name, gene_id, query_start, query_stop, ref_start, ref_stop, f"{identity:.2f}", accession))
+                        query_accession = getattr(f, 'best_qseqid', 'N/A')
+                        reference_accession = getattr(f, 'best_sseqid', 'N/A')
+                        homology_hits.append((gene_name, gene_id, query_start, query_stop, ref_start, ref_stop, f"{identity:.2f}", query_accession, reference_accession))
             homology_df = pd.DataFrame(sorted(homology_hits, key=lambda x: x[2]),
                                        columns=["Gene Name", "ID", "Query Start", "Query Stop", "Reference Start", "Reference Stop", "Identity (%)",
-                                                "Accession"])
+                                                "Query Accession", "Reference Accession"])
 
             enriched_blast_df = data.get("blast_df", pd.DataFrame())
             blast_all_df = _format_blast_df_for_excel(enriched_blast_df)
