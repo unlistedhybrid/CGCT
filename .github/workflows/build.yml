@@ -70,23 +70,37 @@ jobs:
           python-version: ${{ matrix.target.python }}
           cache: "pip"
 
-      # Linux only: Tkinter system deps for TkAgg
+      # Linux only: Tkinter system deps for TkAgg + patchelf for Nuitka
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk tk-dev
+          sudo apt-get install -y python3-tk tk-dev patchelf
 
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip wheel setuptools
           pip install -r requirements.txt
-          pip install pyinstaller
+          # Nuitka + plugins
+          pip install nuitka zstandard ordered-set
 
-      # Build PyInstaller onedir => dist/CGCT/{CGCT,_internal/...}
-      - name: Build CGCT (PyInstaller onedir)
+      # Build with Nuitka
+      # We use --standalone to create a folder (dist/CGCT.dist) containing the binary + libs.
+      # We then rename it to dist/CGCT so your packaging steps work unchanged.
+      - name: Build CGCT (Nuitka)
         run: |
-          pyinstaller --noconfirm --windowed --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
+          python -m nuitka --standalone \
+            --enable-plugin=numpy \
+            --enable-plugin=matplotlib \
+            --enable-plugin=tk-inter \
+            --include-package=gffutils \
+            --output-dir=dist \
+            "${{ env.ENTRYPOINT }}"
+
+          # Nuitka creates "dist/CGCT.py.dist". Rename it to "dist/CGCT" to match your old structure.
+          # (Note: In Windows PowerShell, mv is alias for Move-Item)
+          cd dist
+          mv "${{ env.ENTRYPOINT }}.dist" "${{ env.APP_NAME }}"
 
       # Download + extract progressiveMauve and place just the binary into dist/CGCT/tools/
       - name: Fetch progressiveMauve (macOS/Linux)
@@ -112,8 +126,13 @@ jobs:
           cp "$mauve_path" "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
           chmod +x "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
 
-          # Ensure main app binary is executable too (usually already, but harmless)
-          chmod +x "dist/${APP_NAME}/${APP_NAME}"
+          # Ensure main app binary is executable (Nuitka usually handles this, but safety first)
+          # Note: Nuitka binary name usually matches script name "CGCT" on Linux/Mac
+          if [ -f "dist/${APP_NAME}/${ENTRYPOINT%.*}" ]; then
+             chmod +x "dist/${APP_NAME}/${ENTRYPOINT%.*}"
+          elif [ -f "dist/${APP_NAME}/${APP_NAME}" ]; then
+             chmod +x "dist/${APP_NAME}/${APP_NAME}"
+          fi
 
       - name: Fetch progressiveMauve (Windows)
         if: runner.os == 'Windows'
@@ -162,7 +181,7 @@ jobs:
 
       # Package for distribution:
       # - Windows: zip
-      # - macOS/Linux: tar.gz (preserves executable bits reliably)
+      # - macOS/Linux: tar.gz
       - name: Package bundle (Windows zip)
         if: runner.os == 'Windows'
         shell: pwsh
