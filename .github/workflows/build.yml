@@ -85,11 +85,15 @@ jobs:
           pip install nuitka zstandard ordered-set
 
       # Build with Nuitka
-      # Updated: Removed deprecated plugins + allowed unittest imports to fix warnings
+      # Updates:
+      # 1. --windows-console-mode=disable -> Hides the black terminal window on Windows.
+      # 2. --noinclude-unittest-mode=allow -> Fixes the "pyparsing" warning.
+      # 3. --enable-plugin=tk-inter -> Required for matplotlib/GUI.
       - name: Build CGCT (Nuitka)
         shell: bash
         run: |
           python -m nuitka --standalone \
+            --windows-console-mode=disable \
             --enable-plugin=tk-inter \
             --include-package=gffutils \
             --noinclude-unittest-mode=allow \
