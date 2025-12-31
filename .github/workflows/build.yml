@@ -85,10 +85,6 @@ jobs:
           pip install nuitka zstandard ordered-set
 
       # Build with Nuitka
-      # Updates:
-      # 1. --windows-console-mode=disable -> Hides the black terminal window on Windows.
-      # 2. --noinclude-unittest-mode=allow -> Fixes the "pyparsing" warning.
-      # 3. --enable-plugin=tk-inter -> Required for matplotlib/GUI.
       - name: Build CGCT (Nuitka)
         shell: bash
         run: |
@@ -97,12 +93,12 @@ jobs:
             --enable-plugin=tk-inter \
             --include-package=gffutils \
             --noinclude-unittest-mode=allow \
+            --assume-yes-for-downloads \
             --output-dir=dist \
             "${{ env.ENTRYPOINT }}"
 
-          # Nuitka creates "dist/CGCT.py.dist". Rename it to "dist/CGCT"
           cd dist
-          mv "${{ env.ENTRYPOINT }}.dist" "${{ env.APP_NAME }}"
+          mv *.dist "${{ env.APP_NAME }}"
 
       # Download + extract progressiveMauve and place just the binary into dist/CGCT/tools/
       - name: Fetch progressiveMauve (macOS/Linux)
