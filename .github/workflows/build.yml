@@ -85,9 +85,9 @@ jobs:
           pip install nuitka zstandard ordered-set
 
       # Build with Nuitka
-      # We use --standalone to create a folder (dist/CGCT.dist) containing the binary + libs.
-      # We then rename it to dist/CGCT so your packaging steps work unchanged.
+      # Added 'shell: bash' so we can use '\' line breaks on Windows too
       - name: Build CGCT (Nuitka)
+        shell: bash
         run: |
           python -m nuitka --standalone \
             --enable-plugin=numpy \
@@ -97,8 +97,7 @@ jobs:
             --output-dir=dist \
             "${{ env.ENTRYPOINT }}"
 
-          # Nuitka creates "dist/CGCT.py.dist". Rename it to "dist/CGCT" to match your old structure.
-          # (Note: In Windows PowerShell, mv is alias for Move-Item)
+          # Nuitka creates "dist/CGCT.py.dist". Rename it to "dist/CGCT"
           cd dist
           mv "${{ env.ENTRYPOINT }}.dist" "${{ env.APP_NAME }}"
 
