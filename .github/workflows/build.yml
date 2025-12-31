@@ -85,15 +85,14 @@ jobs:
           pip install nuitka zstandard ordered-set
 
       # Build with Nuitka
-      # Added 'shell: bash' so we can use '\' line breaks on Windows too
+      # Updated: Removed deprecated plugins + allowed unittest imports to fix warnings
       - name: Build CGCT (Nuitka)
         shell: bash
         run: |
           python -m nuitka --standalone \
-            --enable-plugin=numpy \
-            --enable-plugin=matplotlib \
             --enable-plugin=tk-inter \
             --include-package=gffutils \
+            --noinclude-unittest-mode=allow \
             --output-dir=dist \
             "${{ env.ENTRYPOINT }}"
 
