@@ -4241,14 +4241,25 @@ def _determine_colorbars_to_show(data, plot_params, filtered_blast_df, scores_to
         except:
             cmap = plt.get_cmap("viridis")
 
-        norm = mcolors.Normalize(vmin=color_vmin, vmax=color_vmax)
+        # Prevent matplotlib from expanding zero-range normalizations
+        # For percentage data [0-100], adjust range to prevent expansion while respecting bounds
+        norm_vmin, norm_vmax = color_vmin, color_vmax
+        if norm_vmin >= norm_vmax:  # Zero or inverted range
+            # Add epsilon to vmax, but keep vmin >= 0 and vmax <= 100
+            if norm_vmax < 100.0:
+                norm_vmax = min(100.0, norm_vmin + 0.001)  # Expand upward if possible
+            elif norm_vmin > 0.0:
+                norm_vmin = max(0.0, norm_vmin - 0.001)  # Expand downward if vmax is already at max
+            # If vmin=100 and vmax=100, keep it and let epsilon be tiny
+            if norm_vmin >= norm_vmax:
+                norm_vmax = norm_vmin + 0.001
+        norm = mcolors.Normalize(vmin=norm_vmin, vmax=norm_vmax)
         colorbar_definitions['blast'] = {'label': 'BLAST Hit Identity (%)',
                                          'mappable': cm.ScalarMappable(norm=norm, cmap=cmap)}
 
     has_identity_data = False
     s_min, s_max = 0, 100
 
-    # Priority 1: Precise Mode (Raw Blocks) using explicit all_ids list
     if plot_params.get("id_ring_precise_mode", False) and all_ids is not None and len(all_ids) > 0:
         has_identity_data = True
         if plot_params.get("nc_auto_fit_color", True):
@@ -4257,8 +4268,14 @@ def _determine_colorbars_to_show(data, plot_params, filtered_blast_df, scores_to
             if s_min > 0 and (s_max - s_min) < 5:
                 s_min = max(0, s_min - 5)
 
-    # Priority 2: Standard Sliding Window
+    elif all_ids and len(all_ids) > 0:
+        # all_ids contains values from actually drawn artists - use this for accurate range
+        has_identity_data = True
+        if plot_params.get("nc_auto_fit_color", True):
+            s_min = min(all_ids)
+            s_max = max(all_ids)
     elif scores_to_plot and len(scores_to_plot) > 0:
+        # Fallback: if no drawn artists available, use filtered scores
         has_identity_data = True
         vals = [s for _, s in scores_to_plot]
         if vals and plot_params.get("nc_auto_fit_color", True):
@@ -4269,7 +4286,19 @@ def _determine_colorbars_to_show(data, plot_params, filtered_blast_df, scores_to
         if s_min >= s_max:
             s_max = s_min + 1.0
 
-        norm = mcolors.Normalize(vmin=s_min, vmax=s_max)
+        # Prevent matplotlib from expanding zero-range normalizations
+        # For percentage data [0-100], adjust range to prevent expansion while respecting bounds
+        norm_vmin, norm_vmax = s_min, s_max
+        if norm_vmin >= norm_vmax:  # Zero or inverted range
+            # Add epsilon to vmax, but keep vmin >= 0 and vmax <= 100
+            if norm_vmax < 100.0:
+                norm_vmax = min(100.0, norm_vmin + 0.001)  # Expand upward if possible
+            elif norm_vmin > 0.0:
+                norm_vmin = max(0.0, norm_vmin - 0.001)  # Expand downward if vmax is already at max
+            # If vmin=100 and vmax=100, keep it and let epsilon be tiny
+            if norm_vmin >= norm_vmax:
+                norm_vmax = norm_vmin + 0.001
+        norm = mcolors.Normalize(vmin=norm_vmin, vmax=norm_vmax)
         colorbar_definitions['identity'] = {
             'label': f'{id_label} (%)',
             'mappable': cm.ScalarMappable(norm=norm, cmap=nc_cmap)
@@ -4287,7 +4316,6 @@ def _determine_colorbars_to_show(data, plot_params, filtered_blast_df, scores_to
 def _calculate_safe_vertical_zone(fig, ax, legend_bbox_fig, text_objects):
     renderer, inv_fig = fig.canvas.get_renderer(), fig.transFigure.inverted()
 
-    # Reduced padding to be less aggressive about finding space
     if legend_bbox_fig: floor_y = legend_bbox_fig.y1 + 0.01
     else: floor_y = 0.02
 
@@ -4399,7 +4427,13 @@ def _create_legend_and_colorbars(fig, ax, data, plot_params, filtered_blast_df, 
                     vmin_id, vmax_id = cbar_def['mappable'].norm.vmin, cbar_def['mappable'].norm.vmax
                     ticks_id = np.linspace(vmin_id, vmax_id, 5) if vmax_id > vmin_id else [vmin_id]
                     cbar.set_ticks(ticks_id)
-                    cbar.ax.set_xticklabels([f'{t:.0f}' for t in ticks_id])
+                    # Check if integer labels would have duplicates
+                    int_labels = [f'{t:.0f}' for t in ticks_id]
+                    if len(int_labels) != len(set(int_labels)):
+                        # Use 1 decimal place if there are duplicates
+                        cbar.ax.set_xticklabels([f'{t:.1f}' for t in ticks_id])
+                    else:
+                        cbar.ax.set_xticklabels(int_labels)
 
                 all_cbars_and_axes.append((cbar, cax))
                 current_left += cbar_width + h_gap
@@ -4460,7 +4494,6 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     id_ring_radius = plot_params.get("id_ring_radius", 0.6)
     gc_inner = plot_params.get("gc_inner", 0.3)
     skew_inner_radius = plot_params.get("skew_inner_radius", 0.6)
-    id_ring_linewidth = plot_params.get("id_ring_linewidth", 1.0)
     blast_ring_radius = plot_params.get("blast_ring_radius", 1.0)
     blast_ring_thickness = plot_params.get("blast_ring_thickness", 0.15)
     show_roi_labels = plot_params.get("show_roi_labels", True)
@@ -4916,13 +4949,17 @@ def _draw_plot(ax, data, plot_params, recalculate_auto_view=False):
     else:
         if scores_to_plot:
             artists_before = set(ax.patches) | set(ax.collections)
+            # Extract coding regions from gene features
+            coding_regions_list = [(f.start, f.end) for f in original_gene_feats]
+
             draw_identity_ring(
                 ax, graphic, scores_to_plot, plot_seqlen, plot_top_position, cmap=nc_cmap,
                 color_only_mode=plot_params.get("id_ring_color_only", False),
                 auto_scale_color=plot_params.get("nc_auto_fit_color", True),
                 inner_radius=id_ring_radius, thickness=calculated_id_thickness,
-                line_width=id_ring_linewidth, baseline_alpha=id_alpha, step_size=nc_step_size,
-                limit_region=limit_region, region_start=region_start, region_end=region_end
+                baseline_alpha=id_alpha, step_size=nc_step_size,
+                limit_region=limit_region, region_start=region_start, region_end=region_end,
+                coding_regions=coding_regions_list, include_coding=include_coding, show_noncoding=show_noncoding
             )
             artists_after = set(ax.patches) | set(ax.collections)
             identity_ring_artists_local = list(artists_after - artists_before)
@@ -5329,8 +5366,9 @@ def compute_top_position_for_roi(roi_features, seqlen, base_top=0.0, desired_ang
 
 
 def draw_identity_ring(ax, graphic, score_data, seqlen, top_position, cmap, auto_scale_color=True,
-                       color_only_mode=False, inner_radius=0.2, thickness=0.2, line_width=1.0, baseline_alpha=1.0,
-                       step_size=50, limit_region=False, region_start=0, region_end=None):
+                       color_only_mode=False, inner_radius=0.2, thickness=0.2, baseline_alpha=1.0,
+                       step_size=50, limit_region=False, region_start=0, region_end=None,
+                       coding_regions=None, include_coding=True, show_noncoding=True):
     """Draws identity data with multiple viewing modes and corrected radius/thickness logic.
        Baseline now represents 0% identity when color_only_mode is False.
     """
@@ -5352,7 +5390,6 @@ def draw_identity_ring(ax, graphic, score_data, seqlen, top_position, cmap, auto
         norm = mcolors.Normalize(vmin=0, vmax=100)
 
     # Draw Baseline FIRST (in both Color-Only and Bar modes)
-    # Baseline alpha controls visibility (controlled by baseline_alpha parameter)
     if baseline_alpha > 0.0:  # Only draw if not completely transparent
         r_baseline = r_inner
         baseline_color = 'gray'
@@ -5388,39 +5425,94 @@ def draw_identity_ring(ax, graphic, score_data, seqlen, top_position, cmap, auto
         elif score_data:
             arcs_to_draw.append(score_data)
 
+        drawn_scores = []
         for arc_data in arcs_to_draw:
-            if len(arc_data) < 2: continue
+            for pos, score in arc_data:
+                drawn_scores.append(score)
+
+        total_polygons = 0
+        for arc_data in arcs_to_draw:
+            if len(arc_data) < 1:
+                continue
             positions = np.array([p for p, s in arc_data])
             scores = np.array([s for p, s in arc_data])
             angles = np.deg2rad(90.0 - 360.0 * ((positions - float(top_position)) / seqlen))
 
-            for i in range(len(positions) - 1):
+            # Draw polygons for ALL points (including the last one)
+            for i in range(len(positions)):
+                # Calculate end angle: next point's angle, or extrapolate using step_size for last point
+                if i + 1 < len(angles):
+                    angle_end = angles[i + 1]
+                else:
+                    # For the last point, calculate where it should extend to based on step_size
+                    next_pos = positions[i] + step_size
+                    if limit_region and region_end is not None:
+                        next_pos = min(next_pos, region_end)
+                    angle_end = np.deg2rad(90.0 - 360.0 * ((next_pos - float(top_position)) / seqlen))
+
+                    # Clip angle based on coding/non-coding boundaries if restrictions apply
+                    if coding_regions is not None and (not include_coding or not show_noncoding):
+                        current_pos = positions[i]
+                        clipped_end = next_pos
+
+                        if not include_coding and show_noncoding:
+                            # Showing only non-coding: clip at coding region start
+                            for c_start, c_end in coding_regions:
+                                if current_pos < c_start < clipped_end:
+                                    clipped_end = min(clipped_end, c_start)
+
+                        elif include_coding and not show_noncoding:
+                            # Showing only coding: find which coding region we're in and clip at its end
+                            in_coding_region = None
+                            for cs, ce in coding_regions:
+                                if cs <= current_pos < ce:
+                                    in_coding_region = (cs, ce)
+                                    break
+
+                            if in_coding_region:
+                                cs, ce = in_coding_region
+                                # Clip at the end of current coding region
+                                clipped_end = min(clipped_end, ce)
+
+                                next_coding_start = None
+                                for ncs, nce in coding_regions:
+                                    if ncs >= ce and (next_coding_start is None or ncs < next_coding_start):
+                                        next_coding_start = ncs
+
+                                if next_coding_start is not None and next_coding_start <= next_pos:
+                                    clipped_end = next_coding_start
+
+                        # Recalculate angle_end with clipped position
+                        if clipped_end != next_pos:
+                            angle_end = np.deg2rad(90.0 - 360.0 * ((clipped_end - float(top_position)) / seqlen))
+
+                color = cmap(norm(scores[i]))
+
                 verts = [
                     (r_end * np.cos(angles[i]), r_end * np.sin(angles[i]) - R),
-                    (r_end * np.cos(angles[i + 1]), r_end * np.sin(angles[i + 1]) - R),
-                    (r_start * np.cos(angles[i + 1]), r_start * np.sin(angles[i + 1]) - R),
+                    (r_end * np.cos(angle_end), r_end * np.sin(angle_end) - R),
+                    (r_start * np.cos(angle_end), r_start * np.sin(angle_end) - R),
                     (r_start * np.cos(angles[i]), r_start * np.sin(angles[i]) - R),
                 ]
-                color = cmap(norm(scores[i]))
                 polygon = mpatches.Polygon(verts, closed=True, facecolor=color, edgecolor=color, zorder=0.4)
                 ax.add_patch(polygon)
+
+                total_polygons += 1
     else:
         # Bar Mode (Baseline = 0%)
         r_baseline = r_inner
 
         positions, scores = np.array([p for p, s in score_data]), np.array([s for p, s in score_data])
+
         angles = np.deg2rad(90.0 - 360.0 * ((positions - float(top_position)) / seqlen))
-        # Normalize scores to 0-1 range based on a 0-100% identity scale
         normalized_scores_0_100 = norm(scores)
-        # Calculate radius: baseline + thickness * normalized_score
         r_scores = r_baseline + (R * thickness * normalized_scores_0_100)
         x_starts, y_starts = r_baseline * np.cos(angles), r_baseline * np.sin(angles) - R
         x_ends, y_ends = r_scores * np.cos(angles), r_scores * np.sin(angles) - R
         lines = [[(x_starts[i], y_starts[i]), (x_ends[i], y_ends[i])] for i in range(len(positions))]
-        # Color lines based on the score using the chosen colormap and normalization
         line_colors = cmap(norm(scores))
         if lines:
-            line_collection = LineCollection(lines, colors=line_colors, linewidths=line_width, zorder=0.4)
+            line_collection = LineCollection(lines, colors=line_colors, linewidths=1, zorder=0.4)
             ax.add_collection(line_collection)
 
 
@@ -7089,7 +7181,6 @@ class PlottingWindow(tk.Toplevel):
             "id_ring_include_coding": tk.BooleanVar(value=False),
             "id_ring_radius": tk.DoubleVar(value=0.7),
             "id_ring_thickness": tk.DoubleVar(value=0.20),
-            "id_ring_linewidth": tk.DoubleVar(value=1.0),
             "id_ring_precise_mode": tk.BooleanVar(value=data.get("id_ring_precise_mode", False)),
             "blast_ring_thickness": tk.DoubleVar(value=0.15),
             "blast_ring_radius": tk.DoubleVar(value=1.0),
@@ -8613,10 +8704,6 @@ class PlottingWindow(tk.Toplevel):
                                                                self.plot_params["id_ring_thickness"], 0.05,
                                                                1.0, command=on_id_change,
                                                                tooltip_text=self.plot_tooltips.get("id_ring_thickness"))
-        self._add_slider_with_entry(i_interior, "Identity Line Width (pt)",
-                                    self.plot_params["id_ring_linewidth"], 0.2,
-                                    5.0, command=lambda e: self._on_manual_ring_adjustment(),
-                                    tooltip_text=self.plot_tooltips.get("id_ring_linewidth"))
         self._add_slider_with_entry(i_interior, "ID Baseline Transparency (%)",
                                     self.plot_params["id_baseline_transparency_pct"], 0, 100,
                                     tooltip_text=self.plot_tooltips.get("id_baseline_transparency_pct"))
@@ -9719,7 +9806,6 @@ class App(tk.Tk):
             "region_end": tk.StringVar(value=""),
             "identity_algorithm": tk.StringVar(value="Mauve + SibeliaZ Fallback"),
             "nc_colormap": tk.StringVar(value="Viridis"),
-            "id_ring_linewidth": tk.DoubleVar(value=1.0),
             "id_baseline_transparency_pct": tk.DoubleVar(value=100.0),
             "gc_baseline_transparency_pct": tk.DoubleVar(value=50.0),
             "skew_baseline_transparency_pct": tk.DoubleVar(value=50.0),
@@ -9836,7 +9922,6 @@ class App(tk.Tk):
             "id_ring_color_only": "Show only identity color without percentage text",
             "id_ring_precise_mode": "Show raw alignment blocks instead of sliding window",
             "id_ring_show_noncoding": "Show identity for non-coding regions",
-            "id_ring_linewidth": "Line width for identity ring connector",
             "id_baseline_transparency_pct": "Baseline transparency for identity ring (0-100%)",
             "blast_ring_thickness": "Thickness of BLAST homology ring",
             "blast_ring_radius": "Radial position of BLAST ring",
@@ -10117,8 +10202,7 @@ class App(tk.Tk):
             ("Skew Inner Radius", "skew_inner_radius"), ("Skew Thickness", "skew_thick"),
             ("Skew Baseline Trans. (%)", "skew_baseline_transparency_pct"), ("NC Window Size", "nc_window_size"),
             ("NC Step Size", "nc_step_size"), ("ID Baseline Trans. (%)", "id_baseline_transparency_pct"),
-            ("Identity Ring Radius", "id_ring_radius"), ("Identity Ring Thickness", "id_ring_thickness"),
-            ("Identity Line Width (pt)", "id_ring_linewidth")
+            ("Identity Ring Radius", "id_ring_radius"), ("Identity Ring Thickness", "id_ring_thickness")
         ]
 
         param_col = 0
