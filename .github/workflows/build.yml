@@ -1,4 +1,4 @@
-name: Build CGCT bundle (Nuitka OneFile + Cache)
+name: Build CGCT bundle (with progressiveMauve)
 
 on:
   push:
@@ -19,38 +19,38 @@ jobs:
           - name: windows-x64
             os: windows-latest
             python: "3.11"
-            executable_name: CGCT.exe
             mauve_asset: progressiveMauve-v2.5.0-windows-x64.zip
             mauve_bin: progressiveMauve.exe
             readme_src: README_WINDOWS.md
-            include_extras: "true" # Controls config.txt and Dockerfile
+            include_dockerfile: "true"
+            include_config: "true"
 
           - name: linux-x64
             os: ubuntu-24.04
             python: "3.11"
-            executable_name: CGCT.bin
             mauve_asset: progressiveMauve-v2.5.0-linux-x86_64.tar.gz
             mauve_bin: progressiveMauve
             readme_src: README_LINUX_AMD64.md
-            include_extras: "false"
+            include_dockerfile: "false"
+            include_config: "false"
 
           - name: macos-x64
             os: macos-15-intel
             python: "3.11"
-            executable_name: CGCT.bin
             mauve_asset: progressiveMauve-v2.5.0-macos-intel.tar.gz
             mauve_bin: progressiveMauve
             readme_src: README_MAC_AMD64.md
-            include_extras: "true"
+            include_dockerfile: "true"
+            include_config: "true"
 
           - name: macos-arm64
             os: macos-14
             python: "3.11"
-            executable_name: CGCT.bin
             mauve_asset: progressiveMauve-v2.5.0-macos-arm64.tar.gz
             mauve_bin: progressiveMauve
             readme_src: README_MAC_ARM64.md
-            include_extras: "true"
+            include_dockerfile: "true"
+            include_config: "true"
 
     runs-on: ${{ matrix.target.os }}
 
@@ -70,113 +70,120 @@ jobs:
           python-version: ${{ matrix.target.python }}
           cache: "pip"
 
-      # --- CACHING SETUP ---
-      - name: Cache Nuitka & ccache
-        uses: actions/cache@v4
-        with:
-          path: |
-            .build_cache
-            ~/.ccache
-            ~/Library/Caches/ccache
-          key: ${{ runner.os }}-nuitka-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-nuitka-
-
-      # --- DEPENDENCIES ---
+      # Linux only: Tkinter system deps for TkAgg
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk tk-dev patchelf libfuse2 file ccache
-
-      - name: Install system deps (macOS)
-        if: startsWith(runner.os, 'macOS')
-        run: brew install ccache
+          sudo apt-get install -y python3-tk tk-dev
 
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip wheel setuptools
           pip install -r requirements.txt
-          pip install nuitka zstandard ordered-set
+          pip install pyinstaller
 
-      # --- COMPILATION ---
-      - name: Build CGCT (Nuitka OneFile)
-        shell: bash
-        env:
-          NUITKA_CACHE_DIR: .build_cache
-          CCACHE_DIR: ~/.ccache
+      # Build PyInstaller onedir => dist/CGCT/{CGCT,_internal/...}
+      - name: Build CGCT (PyInstaller onedir)
         run: |
-          mkdir -p .build_cache
-          
-          python -m nuitka --onefile \
-            --windows-console-mode=disable \
-            --enable-plugin=tk-inter \
-            --include-package=gffutils \
-            --noinclude-unittest-mode=allow \
-            --assume-yes-for-downloads \
-            --output-filename="${{ matrix.target.executable_name }}" \
-            "${{ env.ENTRYPOINT }}"
+          pyinstaller --noconfirm --windowed --name "${{ env.APP_NAME }}" "${{ env.ENTRYPOINT }}"
 
-      # --- PACKAGING (The "Release" Folder) ---
-      - name: Prepare Release Folder
-        shell: bash
-        run: |
-          # 1. Create the clean structure
-          mkdir -p release/Tools
-          
-          # 2. Move Main Executable
-          mv "${{ matrix.target.executable_name }}" release/
-          
-          # 3. Copy README
-          cp "${{ matrix.target.readme_src }}" "release/readme.md"
-
-          # 4. Copy Extras (Config/Dockerfile) - ONLY if requested (Windows/Mac)
-          if [ "${{ matrix.target.include_extras }}" = "true" ]; then
-             cp "config.txt" "release/config.txt"
-             cp "Dockerfile" "release/Dockerfile"
-          fi
-
-          # 5. Copy Windows-specific Install Scripts
-          if [ "${{ runner.os }}" = "Windows" ]; then
-             cp "install-sibeliaz-wsl.bat" "release/install-sibeliaz-wsl.bat"
-             cp "install-sibeliaz-wsl.sh" "release/install-sibeliaz-wsl.sh"
-          fi
-
-      # --- FETCH MAUVE (Into "Tools" folder) ---
+      # Download + extract progressiveMauve and place just the binary into dist/CGCT/tools/
       - name: Fetch progressiveMauve (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           url="https://github.com/${MAUVE_REPO}/releases/download/${MAUVE_TAG}/${{ matrix.target.mauve_asset }}"
+          echo "Downloading: $url"
           curl -L --fail -o mauve.tar.gz "$url"
-          
+
           mkdir -p mauve_extract
           tar -xzf mauve.tar.gz -C mauve_extract
-          
-          # Find binary and copy to Release/Tools/
+
           mauve_path="$(find mauve_extract -type f -name "${{ matrix.target.mauve_bin }}" -print -quit)"
-          cp "$mauve_path" "release/Tools/${{ matrix.target.mauve_bin }}"
-          
-          # Permissions
-          chmod +x "release/Tools/${{ matrix.target.mauve_bin }}"
-          chmod +x "release/${{ matrix.target.executable_name }}"
+          if [ -z "$mauve_path" ]; then
+            echo "ERROR: Could not find ${{ matrix.target.mauve_bin }} in extracted archive"
+            find mauve_extract -maxdepth 4 -type f -print
+            exit 1
+          fi
+
+          mkdir -p "dist/${APP_NAME}/tools"
+          cp "$mauve_path" "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
+          chmod +x "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
+
+          # Ensure main app binary is executable too (usually already, but harmless)
+          chmod +x "dist/${APP_NAME}/${APP_NAME}"
 
       - name: Fetch progressiveMauve (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $url = "https://github.com/${env:MAUVE_REPO}/releases/download/${env:MAUVE_TAG}/${{ matrix.target.mauve_asset }}"
+          Write-Host "Downloading: $url"
           Invoke-WebRequest -Uri $url -OutFile "mauve.zip"
-          
-          Expand-Archive -Path "mauve.zip" -DestinationPath "mauve_extract" -Force
-          $mauve = Get-ChildItem -Path "mauve_extract" -Recurse -File -Filter "${{ matrix.target.mauve_bin }}" | Select-Object -First 1
-          
-          Copy-Item -Force $mauve.FullName "release\Tools\${{ matrix.target.mauve_bin }}"
 
-      # --- UPLOAD ---
-      - name: Upload Artifact
+          New-Item -ItemType Directory -Force -Path "mauve_extract" | Out-Null
+          Expand-Archive -Path "mauve.zip" -DestinationPath "mauve_extract" -Force
+
+          $mauve = Get-ChildItem -Path "mauve_extract" -Recurse -File -Filter "${{ matrix.target.mauve_bin }}" | Select-Object -First 1
+          if (-not $mauve) {
+            Write-Host "ERROR: Could not find ${{ matrix.target.mauve_bin }} in extracted archive"
+            Get-ChildItem -Path "mauve_extract" -Recurse -File | Select-Object FullName
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\tools" | Out-Null
+          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\tools\${{ matrix.target.mauve_bin }}"
+
+      # Add platform-specific README (always), and optional Dockerfile/config.txt (non-Linux only)
+      - name: Add README (+ extras when applicable) (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${{ matrix.target.readme_src }}" "dist/${APP_NAME}/readme.md"
+          if [ "${{ matrix.target.include_dockerfile }}" = "true" ]; then
+            cp "Dockerfile" "dist/${APP_NAME}/Dockerfile"
+          fi
+          if [ "${{ matrix.target.include_config }}" = "true" ]; then
+            cp "config.txt" "dist/${APP_NAME}/config.txt"
+          fi
+
+      - name: Add README (+ extras) + WSL installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item -Force "${{ matrix.target.readme_src }}" "dist\${env:APP_NAME}\readme.md"
+          Copy-Item -Force "Dockerfile" "dist\${env:APP_NAME}\Dockerfile"
+          Copy-Item -Force "config.txt" "dist\${env:APP_NAME}\config.txt"
+          Copy-Item -Force "install-sibeliaz-wsl.bat" "dist\${env:APP_NAME}\install-sibeliaz-wsl.bat"
+          Copy-Item -Force "install-sibeliaz-wsl.sh"  "dist\${env:APP_NAME}\install-sibeliaz-wsl.sh"
+
+      # Package for distribution:
+      # - Windows: zip
+      # - macOS/Linux: tar.gz (preserves executable bits reliably)
+      - name: Package bundle (Windows zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "dist\${env:APP_NAME}"
+          $out = "${env:APP_NAME}-${{ matrix.target.name }}.zip"
+          if (Test-Path $out) { Remove-Item $out -Force }
+          Compress-Archive -Path $bundle -DestinationPath $out -Force
+
+      - name: Package bundle (macOS/Linux tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${APP_NAME}-${{ matrix.target.name }}.tar.gz"
+          (cd dist && tar -czf "../$out" "${APP_NAME}")
+
+      - name: Upload packaged bundle
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-${{ matrix.target.name }}
-          path: release/
+          path: |
+            ${{ env.APP_NAME }}-${{ matrix.target.name }}.zip
+            ${{ env.APP_NAME }}-${{ matrix.target.name }}.tar.gz
