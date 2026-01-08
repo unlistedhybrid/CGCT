@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -112,6 +112,15 @@ jobs:
           cp "$mauve_path" "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
           chmod +x "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
 
+          # Extract and copy COPYING file from progressiveMauve to main CGCT directory
+          copying_path="$(find mauve_extract -type f -name "COPYING" -print -quit)"
+          if [ -n "$copying_path" ]; then
+            cp "$copying_path" "dist/${APP_NAME}/COPYING"
+            echo "✓ COPYING file copied to main bundle"
+          else
+            echo "⚠ Warning: COPYING file not found in progressiveMauve archive"
+          fi
+
           # Ensure main app binary is executable too (usually already, but harmless)
           chmod +x "dist/${APP_NAME}/${APP_NAME}"
 
@@ -135,6 +144,22 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\tools" | Out-Null
           Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\tools\${{ matrix.target.mauve_bin }}"
+
+          # Extract and copy COPYING file from progressiveMauve to main CGCT directory
+          $copying = Get-ChildItem -Path "mauve_extract" -Recurse -File -Filter "COPYING" | Select-Object -First 1
+          if ($copying) {
+            Copy-Item -Force $copying.FullName "dist\${env:APP_NAME}\COPYING"
+            Write-Host "✓ COPYING file copied to main bundle"
+          } else {
+            Write-Host "⚠ Warning: COPYING file not found in progressiveMauve archive"
+          }
+
+      # Add LICENSE.txt to main directory
+      - name: Add LICENSE.txt
+        shell: bash
+        run: |
+          cp "LICENSE.txt" "dist/${APP_NAME}/LICENSE.txt"
+          echo "✓ LICENSE.txt copied to main bundle"
 
       # Add platform-specific README (always), and optional Dockerfile/config.txt (non-Linux only)
       - name: Add README (+ extras when applicable) (macOS/Linux)
@@ -187,3 +212,67 @@ jobs:
           path: |
             ${{ env.APP_NAME }}-${{ matrix.target.name }}.zip
             ${{ env.APP_NAME }}-${{ matrix.target.name }}.tar.gz
+
+  # ==============================================================================
+  # CREATE RELEASE JOB
+  # ==============================================================================
+  create-release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize release assets
+        shell: bash
+        run: |
+          mkdir -p release_assets
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec mv {} release_assets/ \;
+          echo "Release assets prepared:"
+          ls -lh release_assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/*
+          name: CGCT v1.0.0
+          tag_name: v1.0.0
+          body: |
+            # CGCT v1.0.0 Release
+            
+            This release bundles CGCT with progressiveMauve v2.5.0 for multiple platforms.
+            
+            ## What's Included
+            - Compiled CGCT application for your platform
+            - progressiveMauve v2.5.0 binary
+            - LICENSE.txt (comprehensive license manifest)
+            - COPYING (GPLv2 license for progressiveMauve)
+            - Platform-specific README with installation and troubleshooting
+            - Dockerfile and configuration templates
+            
+            ## Supported Platforms
+            - **Windows x64** (CGCT-windows-x64.zip)
+            - **Linux x64** (CGCT-linux-x64.tar.gz)
+            - **macOS Intel** (CGCT-macos-x64.tar.gz)
+            - **macOS ARM64** (CGCT-macos-arm64.tar.gz)
+            
+            ## Quick Start
+            1. Extract the appropriate archive for your platform
+            2. Read the platform-specific README included in the folder
+            3. Run CGCT directly (no installation required)
+            
+            ## License
+            - CGCT: Business Source License 1.1 (converts to GPLv3 on January 7, 2029)
+            - progressiveMauve: GNU General Public License v2
+            - See LICENSE.txt for details on all dependencies
+          draft: false
+          prerelease: false
