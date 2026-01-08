@@ -1,0 +1,161 @@
+========================================================================
+LICENSE MANIFEST FOR CGCT 1.0.0
+========================================================================
+
+Copyright © 2026 Aaron Jackson and Michael Thomas
+
+This distribution contains software governed by multiple licenses.
+1. CGCT 1.0.0 source code: Business Source License 1.1 (BSL)
+2. Bundled Binaries (progressiveMauve): GNU GPL v2
+3. Python Dependencies: MIT, BSD, PSF, and Biopython Licenses
+
+------------------------------------------------------------------------
+SECTION 1: CGCT 1.0.0 PROGRAM LICENSE
+------------------------------------------------------------------------
+
+The source code for CGCT 1.0.0 is licensed under the Business Source License 1.1.
+
+BUSINESS SOURCE LICENSE 1.1
+
+License text copyright © 2017 MariaDB Corporation Ab, All Rights Reserved.
+"Business Source License" is a trademark of MariaDB plc.
+
+Licensor: Aaron Jackson (https://github.com/unlistedhybrid) and Michael Thomas
+Licensor's Address: 244086359+unlistedhybrid@users.noreply.github.com
+Licensed Work: CGCT 1.0.0
+Change Date: January 7, 2029
+Change License: GNU General Public License v3.0
+Additional Use Grant: None
+Use Limitation: The Licensed Work may not be used for commercial production purposes or made available to third parties as a hosted or managed service.
+
+-- TERMS AND CONDITIONS --
+
+1. Grant of Rights
+
+The Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, and make non-production use of the Licensed Work. The Licensor may make an Additional Use Grant, above, permitting limited production use.
+
+2. Effective Date and Change of License
+
+Effective on the Change Date, or the fourth anniversary of the first publicly available distribution of a specific version of the Licensed Work under this License, whichever comes first, the Licensor hereby grants you rights under the terms of the Change License, and the rights granted in the paragraph above terminate.
+
+3. Versions and Change Dates
+
+All copies of the original and modified Licensed Work, and derivative works of the Licensed Work, are subject to this License. This License applies separately for each version of the Licensed Work and the Change Date may vary for each version of the Licensed Work released by Licensor.
+
+4. Compliance and Remedies
+
+If your use of the Licensed Work does not comply with the requirements currently in effect as described in this License, you must purchase a commercial license from the Licensor, its affiliated entities, or authorized resellers, or you must refrain from using the Licensed Work.
+
+5. Display of License
+
+You must conspicuously display this License on each original or modified copy of the Licensed Work. If you receive the Licensed Work in original or modified form from a third party, the terms and conditions set forth in this License apply to your use of that work. Any use of the Licensed Work in violation of this License will automatically terminate your rights under this License for the current and all other versions of the Licensed Work.
+
+6. Disclaimer of Warranties
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON AN "AS IS" BASIS. THE LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND TITLE.
+
+7. Trademark
+
+This License does not grant you any right in any trademark or logo of Licensor or its affiliates.
+
+-- COVENANTS OF LICENSOR --
+
+In consideration of the right to use this License's text and the "Business Source License" name and trademark, Licensor covenants to MariaDB, and to all other recipients of the licensed work to be provided by Licensor:
+
+1. To specify as the Change License the GPL Version 2.0 or any later version, or a license that is compatible with GPL Version 2.0 or a later version, where "compatible" means that software provided under the Change License can be included in a program with software provided under GPL Version 2.0 or a later version.
+
+2. To either specify an additional grant of rights to use that does not impose any additional restriction on the right granted in this License, as the Additional Use Grant, or insert the text "None".
+
+3. Not to modify this License in any other way.
+
+------------------------------------------------------------------------
+SECTION 2: BUNDLED THIRD-PARTY TOOLS
+------------------------------------------------------------------------
+
+This program bundles the following executables. They are separate works and are governed by their own licenses.
+
+A. PROGRESSIVE MAUVE
+   Copyright (C) Aaron Darling
+   Website: http://darlinglab.org/mauve/
+   License: GNU General Public License version 2 (GPLv2)
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; version 2 of the License.
+
+   progressiveMauve is an independent program distributed unmodified under the
+   GNU General Public License v2.0. CGCT does not link against, incorporate,
+   or derive from progressiveMauve. CGCT merely invokes progressiveMauve as
+   an external executable via command-line interfaces and file-based inputs
+   and outputs. The licenses governing CGCT do not apply to progressiveMauve.
+
+   [Note to User: The full text of the GPLv2 should be included in a file named COPYING or appended to the end of this file.]
+
+B. SIBELIAZ (External Dependency)
+   This program may interface with SibeliaZ. SibeliaZ is not bundled with this software but is recommended for use.
+   Copyright (C) Ilya Minkin
+   License: GNU General Public License version 3 (GPLv3)
+
+------------------------------------------------------------------------
+SECTION 3: PYTHON LIBRARIES AND DEPENDENCIES
+------------------------------------------------------------------------
+
+This software uses the following open-source Python libraries. We acknowledge and thank the authors of these libraries.
+
+1.  MATPLOTLIB
+    Copyright (c) 2002-2026 The Matplotlib Development Team. All Rights Reserved.
+    License: PSF-based (Matplotlib License)
+
+2.  BIOPYTHON
+    Copyright (C) 2026 The Biopython Contributors
+    License: Biopython License Agreement (permissive)
+
+3.  NUMPY & PANDAS
+    License: BSD 3-Clause License
+    Copyright (c) 2005-2026, NumPy Developers.
+    Copyright (c) 2008-2026, AQR Capital Management, LLC, Lambda Foundry, Inc. and PyData Development Team.
+
+    Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+    1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+    2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+    3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+4.  DNA FEATURES VIEWER, GFFUTILS, OPENPYXL
+    License: MIT License
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+    The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+5.  TKINTER (Tcl/Tk)
+    Copyright (c) 1995-2026 Tcl/Tk Contributors. All Rights Reserved.
+    License: Tcl/Tk License
+
+    This software is copyrighted by the Regents of the University of California, Sun Microsystems, Inc., and other parties. The following terms apply to all files associated with the software unless explicitly disclaimed in individual files.
+
+    The authors hereby grant permission to use, copy, modify, distribute, and license this software and its documentation for any purpose, provided that existing copyright notices and this notice are retained in all copies and that this entire notice appears in supporting documentation.
+
+    The Tcl/Tk license is compatible with open-source distribution and permits both non-commercial and commercial use.
+
+------------------------------------------------------------------------
+DISCLAIMER FOR ALL SOFTWARE
+------------------------------------------------------------------------
+The software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+
+Nothing in this license restricts rights granted by the GNU GPL to third-party tools included in this distribution.
+
+------------------------------------------------------------------------
+COMMERCIAL LICENSING
+------------------------------------------------------------------------
+
+For commercial licenses, production use inquiries, or additional use grants,
+please contact: 244086359+unlistedhybrid@users.noreply.github.com
+
+------------------------------------------------------------------------
+REFERENCES
+------------------------------------------------------------------------
+
+Project Repository:
+https://github.com/unlistedhybrid/CGCT
+
+For the full Business Source License 1.1 specification and additional resources, visit:
+https://mariadb.com/bsl11/
