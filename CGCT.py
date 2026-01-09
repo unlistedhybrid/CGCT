@@ -1282,7 +1282,23 @@ def _get_max_exact_match(lcb_data_list):
 
 def _calculate_fragment_identities(aligned_seq1, aligned_seq2):
     """Calculates identity% (excluding gaps) and (including gaps as mismatches)."""
-    if not aligned_seq1 or not aligned_seq2 or len(aligned_seq1) != len(aligned_seq2): return 0.0, 0.0
+    if not aligned_seq1 or not aligned_seq2:
+        return 0.0, 0.0
+
+    # Handle length mismatches - this should NOT happen with properly aligned sequences
+    len1, len2 = len(aligned_seq1), len(aligned_seq2)
+    if len1 != len2:
+        print(f"[ERROR] Aligned sequence length mismatch detected: {len1} vs {len2}")
+        print(f"  This indicates a bug in the alignment parsing or fragment extraction.")
+        print(f"  Applying emergency padding to prevent 0% identity, but results may be incorrect.")
+        print(f"  Query preview: ...{aligned_seq1[-50:] if len1 > 50 else aligned_seq1}")
+        print(f"  Ref preview:   ...{aligned_seq2[-50:] if len2 > 50 else aligned_seq2}")
+
+        # Emergency padding (band-aid fix)
+        if len1 < len2:
+            aligned_seq1 = aligned_seq1 + '-' * (len2 - len1)
+        else:
+            aligned_seq2 = aligned_seq2 + '-' * (len1 - len2)
 
     arr1 = np.array(list(aligned_seq1))
     arr2 = np.array(list(aligned_seq2))
@@ -1293,6 +1309,27 @@ def _calculate_fragment_identities(aligned_seq1, aligned_seq2):
     valid_comparisons = is_not_gap_either.sum()
     identity_excl_gaps = (matches / valid_comparisons * 100) if valid_comparisons > 0 else 0.0
     identity_incl_gaps = (matches / total_aligned_length * 100) if total_aligned_length > 0 else 0.0
+
+    # Detect anti-aligned sequences (gaps in one align with bases in the other)
+    # This suggests a serious alignment or parsing error
+    if identity_excl_gaps < 5.0 and valid_comparisons > 0:
+        # Check if this is an "anti-alignment" where gaps oppose bases
+        is_gap_seq1 = (arr1 == '-')
+        is_gap_seq2 = (arr2 == '-')
+        is_base_seq1 = ~is_gap_seq1
+        is_base_seq2 = ~is_gap_seq2
+
+        # Count positions where seq1 has base and seq2 has gap, and vice versa
+        anti_aligned = ((is_base_seq1 & is_gap_seq2) | (is_gap_seq1 & is_base_seq2)).sum()
+        anti_aligned_pct = (anti_aligned / total_aligned_length * 100)
+
+        if anti_aligned_pct > 50.0:
+            print(f"[WARNING] Anti-alignment detected: {anti_aligned_pct:.1f}% of positions have gaps opposite bases")
+            print(f"  Identity: {identity_excl_gaps:.2f}% (excl gaps), {identity_incl_gaps:.2f}% (incl gaps)")
+            print(f"  This may indicate incorrect alignment or strand orientation.")
+            print(f"  Preview (first 100 chars):")
+            print(f"    Seq1: {aligned_seq1[:100]}")
+            print(f"    Seq2: {aligned_seq2[:100]}")
 
     return identity_excl_gaps, identity_incl_gaps
 
@@ -1984,12 +2021,20 @@ def _run_mauve_and_parse(query_fasta_path, ref_fasta_path, full_seqlen, log_queu
             r_start_norm = min(r_start_1idx, r_end_1idx)
             r_end_norm = max(r_start_1idx, r_end_1idx)
 
-            aln_q = str(q_rec.seq).upper()
-            aln_r = str(r_rec.seq).upper()
-            aln_len = len(aln_q)
-            if len(aln_r) != aln_len:
-                print(f"  SKIPPED LCB {lcb_count}: query/ref alignment lengths differ.")
+            aln_q = str(q_rec.seq).upper().strip()
+            aln_r = str(r_rec.seq).upper().strip()
+            aln_len_q = len(aln_q)
+            aln_len_r = len(aln_r)
+
+            if aln_len_r != aln_len_q:
+                print(f"  SKIPPED LCB {lcb_count}: query/ref alignment lengths differ ({aln_len_q} vs {aln_len_r}).")
+                # Debug: show first/last 20 chars to identify issue
+                if abs(aln_len_q - aln_len_r) <= 5:
+                    print(f"    Query ends with: {repr(aln_q[-20:])}")
+                    print(f"    Ref ends with: {repr(aln_r[-20:])}")
                 continue
+
+            aln_len = aln_len_q
 
             # Per-LCB identity
             identity_pct_ignore_gaps, identity_pct_gaps_as_mismatch = _calculate_fragment_identities(aln_q, aln_r)
@@ -2189,15 +2234,26 @@ def _run_sibeliaz_and_parse(query_fasta_path, ref_fasta_path, full_seqlen,
             query_record = lcb[query_idx]
             ref_record = lcb[ref_idx]
 
-            aln_q_raw = str(query_record.seq).upper()
-            aln_r_raw = str(ref_record.seq).upper()
+            aln_q_raw = str(query_record.seq).upper().strip()
+            aln_r_raw = str(ref_record.seq).upper().strip()
 
             q_strand = query_record.annotations.get("strand", "+")
             ref_strand = ref_record.annotations.get("strand", "+")
 
             aln_q = aln_q_raw
             aln_r = aln_r_raw
-            aln_len = len(aln_q)
+            aln_len_q = len(aln_q)
+            aln_len_r = len(aln_r)
+
+            if aln_len_q != aln_len_r:
+                print(f"  SKIPPED LCB {lcb_count}: query/ref alignment lengths differ ({aln_len_q} vs {aln_len_r}).")
+                # Debug: show first/last 20 chars to identify issue
+                if abs(aln_len_q - aln_len_r) <= 5:
+                    print(f"    Query ends with: {repr(aln_q[-20:])}")
+                    print(f"    Ref ends with: {repr(aln_r[-20:])}")
+                continue
+
+            aln_len = aln_len_q
 
             # Coordinates
             q_start_0idx_maf = query_record.annotations["start"]
@@ -3468,7 +3524,22 @@ def _sample_identity_profile(g_query_identity, full_seqlen, window_size, step_si
     window_sums = cumsum_vec[ends] - cumsum_vec[starts]
     scores = window_sums / window_size
 
-    # Fill gaps at start and end by extrapolating the nearest score
+    # 5. Determine coding status for each window (BEFORE gap-filling for accurate statistics)
+    # Check the boolean mask at the exact midpoint index
+    # We clip to ensure we don't go out of bounds (though logic shouldn't allow it)
+    safe_midpoints = np.clip(midpoints, 0, full_seqlen - 1)
+    window_is_coding = is_coding_mask[safe_midpoints]
+
+    # 6. Calculate statistics using REAL windowed data only (before gap-filling)
+    # Create (midpoint, score) pairs from real data
+    real_combined_data = np.column_stack((midpoints, scores))
+
+    # Calculate global average for non-coding regions using only real windows
+    noncoding_avg = 0.0
+    if np.any(~window_is_coding):
+        noncoding_avg = np.mean(real_combined_data[~window_is_coding][:, 1])
+
+    # 7. Fill gaps at start and end by extrapolating the nearest score (for visual continuity only)
     if len(scores) > 0:
         # 1. Fill gap at start
         first_mid = midpoints[0]
@@ -3481,8 +3552,13 @@ def _sample_identity_profile(g_query_identity, full_seqlen, window_size, step_si
                 pre_m = np.insert(pre_m, 0, 0)
 
             pre_s = np.full(len(pre_m), scores[0])
+            # Determine coding status for gap-filled start points
+            safe_pre_m = np.clip(pre_m, 0, full_seqlen - 1)
+            pre_is_coding = is_coding_mask[safe_pre_m]
+
             midpoints = np.concatenate((pre_m, midpoints))
             scores = np.concatenate((pre_s, scores))
+            window_is_coding = np.concatenate((pre_is_coding, window_is_coding))
 
         # 2. Fill gap at end
         last_mid = midpoints[-1]
@@ -3495,27 +3571,21 @@ def _sample_identity_profile(g_query_identity, full_seqlen, window_size, step_si
                 post_m = np.append(post_m, full_seqlen)
 
             post_s = np.full(len(post_m), scores[-1])
+            # Determine coding status for gap-filled end points
+            safe_post_m = np.clip(post_m, 0, full_seqlen - 1)
+            post_is_coding = is_coding_mask[safe_post_m]
+
             midpoints = np.concatenate((midpoints, post_m))
             scores = np.concatenate((scores, post_s))
+            window_is_coding = np.concatenate((window_is_coding, post_is_coding))
 
-    # 5. Determine coding status for each window
-    # Check the boolean mask at the exact midpoint index
-    # We clip to ensure we don't go out of bounds (though logic shouldn't allow it)
-    safe_midpoints = np.clip(midpoints, 0, full_seqlen - 1)
-    window_is_coding = is_coding_mask[safe_midpoints]
-
-    # 6. Split into coding and non-coding lists
+    # 8. Split into coding and non-coding lists (now includes gap-filled data for plotting)
     # Create (midpoint, score) pairs
     combined_data = np.column_stack((midpoints, scores))
 
     # Filter using the boolean mask
     coding_scores = combined_data[window_is_coding].tolist()
     non_coding_scores = combined_data[~window_is_coding].tolist()
-
-    # Calculate global average for non-coding regions
-    noncoding_avg = 0.0
-    if len(non_coding_scores) > 0:
-        noncoding_avg = np.mean(combined_data[~window_is_coding][:, 1])
 
     total_windows = len(coding_scores) + len(non_coding_scores)
     status(f"Identity sampling complete: {total_windows} windows (Fast Mode).", "blue")
@@ -9653,8 +9723,10 @@ class PlottingWindow(tk.Toplevel):
             blast_all_df = filter_by_identity(blast_all_df)
             blast_intergenic_df = filter_by_identity(blast_intergenic_df)
             mauve_lcb_df = filter_by_identity(mauve_lcb_df)
+            mauve_coding_lcb_df = filter_by_identity(mauve_coding_lcb_df)
             mauve_intergenic_lcb_df = filter_by_identity(mauve_intergenic_lcb_df)
             sibeliaz_lcb_df = filter_by_identity(sibeliaz_lcb_df)
+            sibeliaz_coding_lcb_df = filter_by_identity(sibeliaz_coding_lcb_df)
             sibeliaz_intergenic_lcb_df = filter_by_identity(sibeliaz_intergenic_lcb_df)
             legacy_lcb_df = filter_by_identity(legacy_lcb_df)
             legacy_intergenic_lcb_df = filter_by_identity(legacy_intergenic_lcb_df)
@@ -11005,8 +11077,10 @@ class App(tk.Tk):
             blast_all_df = filter_by_identity(blast_all_df)
             blast_intergenic_df = filter_by_identity(blast_intergenic_df)
             mauve_lcb_df = filter_by_identity(mauve_lcb_df)
+            mauve_coding_lcb_df = filter_by_identity(mauve_coding_lcb_df)
             mauve_intergenic_lcb_df = filter_by_identity(mauve_intergenic_lcb_df)
             sibeliaz_lcb_df = filter_by_identity(sibeliaz_lcb_df)
+            sibeliaz_coding_lcb_df = filter_by_identity(sibeliaz_coding_lcb_df)
             sibeliaz_intergenic_lcb_df = filter_by_identity(sibeliaz_intergenic_lcb_df)
             legacy_lcb_df = filter_by_identity(legacy_lcb_df)
             legacy_intergenic_lcb_df = filter_by_identity(legacy_intergenic_lcb_df)
