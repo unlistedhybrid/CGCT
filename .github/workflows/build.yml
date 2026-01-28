@@ -109,8 +109,8 @@ jobs:
           fi
 
           mkdir -p "dist/${APP_NAME}/tools"
-          cp "$mauve_path" "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
-          chmod +x "dist/${APP_NAME}/tools/${{ matrix.target.mauve_bin }}"
+          cp "$mauve_path" "dist/${APP_NAME}/Tools/${{ matrix.target.mauve_bin }}"
+          chmod +x "dist/${APP_NAME}/Tools/${{ matrix.target.mauve_bin }}"
 
           # Extract and copy COPYING file from progressiveMauve to main CGCT directory
           copying_path="$(find mauve_extract -type f -name "COPYING" -print -quit)"
@@ -142,8 +142,8 @@ jobs:
             exit 1
           }
 
-          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\tools" | Out-Null
-          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\tools\${{ matrix.target.mauve_bin }}"
+          New-Item -ItemType Directory -Force -Path "dist\${env:APP_NAME}\Tools" | Out-Null
+          Copy-Item -Force $mauve.FullName "dist\${env:APP_NAME}\Tools\${{ matrix.target.mauve_bin }}"
 
           # Extract and copy COPYING file from progressiveMauve to main CGCT directory
           $copying = Get-ChildItem -Path "mauve_extract" -Recurse -File -Filter "COPYING" | Select-Object -First 1
