@@ -706,7 +706,13 @@ def _run_progressive_mauve(query_fasta: Path, ref_fasta: Path, output_xmfa_path:
 
     # 1. Detect System and Construct Path
     system = platform.system().lower()
-    script_dir = Path(__file__).parent.absolute()
+
+    if getattr(sys, 'frozen', False):
+        # If frozen, sys.executable is the .exe at the root
+        script_dir = Path(sys.executable).parent.absolute()
+    else:
+        # If running as a script, use the file's location
+        script_dir = Path(__file__).parent.absolute()
 
     exe_name = "progressiveMauve"
     if system == "windows":
